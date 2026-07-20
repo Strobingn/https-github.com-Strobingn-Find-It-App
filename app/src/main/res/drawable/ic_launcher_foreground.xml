@@ -1,0 +1,57 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Background grid lines for GIS feel -->
+    <path
+        android:pathData="M18,18 L90,18 M18,36 L90,36 M18,54 L90,54 M18,72 L90,72 M18,90 L90,90 M18,18 L18,90 M36,18 L36,90 M54,18 L54,90 M72,18 L72,90 M90,18 L90,90"
+        android:strokeColor="#1E2C35"
+        android:strokeWidth="1"
+        android:strokeAlpha="0.4" />
+
+    <!-- Radar Sweep Signal Beam (Quarter wedge) -->
+    <path
+        android:pathData="M54,54 L54,24 A30,30 0 0,1 84,54 Z"
+        android:fillColor="#00E676"
+        android:fillAlpha="0.15" />
+
+    <!-- Outer Search Coil Ring -->
+    <path
+        android:pathData="M 54,24 A 30,30 0 1,1 53.99,24 Z"
+        android:strokeColor="#FFD700"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
+
+    <!-- Inner Coil Ring -->
+    <path
+        android:pathData="M 54,38 A 16,16 0 1,1 53.99,38 Z"
+        android:strokeColor="#FFD700"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round" />
+
+    <!-- Horizontal Crosshair -->
+    <path
+        android:pathData="M 16,54 L 92,54"
+        android:strokeColor="#00E676"
+        android:strokeWidth="2"
+        android:strokeAlpha="0.8" />
+
+    <!-- Vertical Crosshair -->
+    <path
+        android:pathData="M 54,16 L 54,92"
+        android:strokeColor="#00E676"
+        android:strokeWidth="2"
+        android:strokeAlpha="0.8" />
+
+    <!-- Solid Core Target Indicator -->
+    <path
+        android:pathData="M 54,49 A 5,5 0 1,1 53.99,49 Z"
+        android:fillColor="#FFFFFF" />
+        
+    <!-- Hotspot Anomaly Indicator (glowing coin dot) -->
+    <path
+        android:pathData="M 72,40 A 3.5,3.5 0 1,1 71.99,40 Z"
+        android:fillColor="#FFD700" />
+</vector>
