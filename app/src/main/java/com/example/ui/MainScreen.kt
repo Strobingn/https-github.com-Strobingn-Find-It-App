@@ -72,6 +72,7 @@ fun MainScreen(
     val overlayType by viewModel.overlayType.collectAsState()
     val overlayOpacity by viewModel.overlayOpacity.collectAsState()
     val gridSpacing by viewModel.gridSpacing.collectAsState()
+    val zScale by viewModel.zScale.collectAsState()
     val hillshadeBitmap by viewModel.hillshadeBitmap.collectAsState()
     val isRendering by viewModel.isRendering.collectAsState()
 
@@ -372,6 +373,8 @@ fun MainScreen(
                 onOverlayOpacityChanged = { viewModel.updateOverlayOpacity(it) },
                 gridSpacing = gridSpacing,
                 onGridSpacingChanged = { viewModel.updateGridSpacing(it) },
+                zScale = zScale,
+                onZScaleChanged = { viewModel.updateZScale(it) },
                 modifier = Modifier.fillMaxWidth()
             )
 

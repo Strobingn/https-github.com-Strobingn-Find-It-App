@@ -67,6 +67,9 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     private val _gridSpacing = MutableStateFlow(0f) // 0 = disabled, else grid cell %
     val gridSpacing: StateFlow<Float> = _gridSpacing.asStateFlow()
 
+    private val _zScale = MutableStateFlow(1.0f) // 1.0 = normal, 0.5 to 4.0 vertical exaggeration
+    val zScale: StateFlow<Float> = _zScale.asStateFlow()
+
     // 2. Simulated/Physical Metal Detecting Sweeper State
     private val _sweepX = MutableStateFlow(50f) // Current scan head coordinate (0 to 100)
     val sweepX: StateFlow<Float> = _sweepX.asStateFlow()
@@ -154,6 +157,7 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch { _visualizationMode.collectLatest { triggerRender() } }
         viewModelScope.launch { _overlayType.collectLatest { triggerRender() } }
         viewModelScope.launch { _overlayOpacity.collectLatest { triggerRender() } }
+        viewModelScope.launch { _zScale.collectLatest { triggerRender() } }
 
         // Core background sweep loop to handle sensor simulation & continuous sound pings
         startDetectorLoop()
@@ -179,6 +183,7 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
             val vis = _visualizationMode.value
             val over = _overlayType.value
             val opac = _overlayOpacity.value
+            val zs = _zScale.value
 
             val bmp = grid.renderHillshade(
                 sunAzimuth = az,
@@ -188,7 +193,8 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
                 contrast = ct,
                 visualizationMode = vis,
                 overlayType = over,
-                overlayOpacity = opac
+                overlayOpacity = opac,
+                zScale = zs
             )
 
             withContext(Dispatchers.Main) {
@@ -199,6 +205,10 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // Setters
+    fun updateZScale(scale: Float) {
+        _zScale.value = scale
+    }
+
     fun selectSite(index: Int) {
         if (index in 0..3) {
             _currentSiteIndex.value = index

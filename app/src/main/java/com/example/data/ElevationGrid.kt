@@ -54,7 +54,8 @@ class ElevationGrid(
         contrast: Float = 1.5f,
         visualizationMode: Int = 0, // 0 = Standard, 1 = Multi-Directional Relief, 2 = Slope Map
         overlayType: Int = 0, // 0 = None, 1 = 1880s Homestead Plat, 2 = 1940s Contour Lines
-        overlayOpacity: Float = 0.5f
+        overlayOpacity: Float = 0.5f,
+        zScale: Float = 1.0f
     ): Bitmap {
         val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val pixels = IntArray(width * height)
@@ -98,9 +99,9 @@ class ElevationGrid(
                 val z21 = filteredElevations[coerceIndex(x, y + 1)]
                 val z22 = filteredElevations[coerceIndex(x + 1, y + 1)]
 
-                // Horn's method for rate of change
-                val dz_dx = ((z02 + 2f * z12 + z22) - (z00 + 2f * z10 + z20)) / (8f * cellDistance)
-                val dz_dy = ((z20 + 2f * z21 + z22) - (z00 + 2f * z01 + z02)) / (8f * cellDistance)
+                // Horn's method for rate of change (scaled by zScale for vertical exaggeration)
+                val dz_dx = (((z02 + 2f * z12 + z22) - (z00 + 2f * z10 + z20)) / (8f * cellDistance)) * zScale
+                val dz_dy = (((z20 + 2f * z21 + z22) - (z00 + 2f * z01 + z02)) / (8f * cellDistance)) * zScale
 
                 // Slope and Aspect
                 val slope = atan(sqrt(dz_dx * dz_dx + dz_dy * dz_dy))

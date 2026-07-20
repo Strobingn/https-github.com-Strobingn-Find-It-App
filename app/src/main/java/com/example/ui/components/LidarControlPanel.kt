@@ -58,6 +58,8 @@ fun LidarControlPanel(
     onOverlayOpacityChanged: (Float) -> Unit,
     gridSpacing: Float,
     onGridSpacingChanged: (Float) -> Unit,
+    zScale: Float,
+    onZScaleChanged: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -466,6 +468,31 @@ fun LidarControlPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("contrast_slider")
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Vertical Exaggeration Slider (Z-Scale)
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Landscape, contentDescription = null, tint = Color(0xFF29B6F6), modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(text = "Vertical Exaggeration (Z-Scale)", color = Color.Gray, fontSize = 11.sp)
+            }
+            Text(text = "${String.format("%.1f", zScale)}x", color = Color(0xFF29B6F6), fontSize = 11.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        }
+        Slider(
+            value = zScale,
+            onValueChange = onZScaleChanged,
+            valueRange = 0.5f..4.0f,
+            colors = SliderDefaults.colors(
+                thumbColor = Color(0xFF29B6F6),
+                activeTrackColor = Color(0xFF29B6F6),
+                inactiveTrackColor = Color(0xFF1E2026)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("z_scale_slider")
         )
 
         Spacer(modifier = Modifier.height(12.dp))
