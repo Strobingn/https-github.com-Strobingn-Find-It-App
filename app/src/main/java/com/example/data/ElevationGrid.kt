@@ -52,9 +52,10 @@ class ElevationGrid(
         vegetationFilter: Float,
         palette: Int,
         contrast: Float = 1.5f,
-        visualizationMode: Int = 0, // 0 = Standard, 1 = Multi-Directional, 2 = Slope, 3 = Foundation local-relief
+        visualizationMode: Int = 0, // 0 = Standard, 1 = Multi-Directional, 2 = Slope, 3 = Foundations local-relief
         overlayType: Int = 0, // 0 = None, 1 = 1880s Homestead Plat, 2 = 1940s Contour Lines
-        overlayOpacity: Float = 0.5f
+        overlayOpacity: Float = 0.5f,
+        zScale: Float = 1.0f
     ): Bitmap {
         val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val pixels = IntArray(width * height)
@@ -72,11 +73,11 @@ class ElevationGrid(
         val cellDistance = 1.0f
 
         // Precompute elevations with vegetation filter applied to speed up loops
-        // For foundation mode, force bare earth (veg off) then high-pass residual.
         val baseElevations = FloatArray(width * height)
         for (i in 0 until width * height) {
             baseElevations[i] = bareEarth[i] + canopySpikes[i] * (1.0f - vegetationFilter)
         }
+        // Mode 3: high-pass residual (cellars / foundation walls pop on bare earth)
         val filteredElevations =
             if (visualizationMode == 3) {
                 localReliefResidual(baseElevations, width, height, window = 7)
@@ -105,9 +106,9 @@ class ElevationGrid(
                 val z21 = filteredElevations[coerceIndex(x, y + 1)]
                 val z22 = filteredElevations[coerceIndex(x + 1, y + 1)]
 
-                // Horn's method for rate of change
-                val dz_dx = ((z02 + 2f * z12 + z22) - (z00 + 2f * z10 + z20)) / (8f * cellDistance)
-                val dz_dy = ((z20 + 2f * z21 + z22) - (z00 + 2f * z01 + z02)) / (8f * cellDistance)
+                // Horn's method for rate of change (scaled by zScale for vertical exaggeration)
+                val dz_dx = (((z02 + 2f * z12 + z22) - (z00 + 2f * z10 + z20)) / (8f * cellDistance)) * zScale
+                val dz_dy = (((z20 + 2f * z21 + z22) - (z00 + 2f * z01 + z02)) / (8f * cellDistance)) * zScale
 
                 // Slope and Aspect
                 val slope = atan(sqrt(dz_dx * dz_dx + dz_dy * dz_dy))
@@ -136,14 +137,12 @@ class ElevationGrid(
                     val bSlope = (0 * slopePct + Color.blue(baseColor) * (1f - slopePct)).toInt().coerceIn(0, 255)
                     finalColor = Color.rgb(rSlope, gSlope, bSlope)
                 } else if (visualizationMode == 3) {
-                    // STYLE 3: Foundation local-relief — residual DEM hillshade (cellars/walls pop)
-                    // elevPct is already residual 0..1; use low sun multi-light
+                    // STYLE 3: Foundations (local-relief residual + multi-light) for pre-1900 cellar/wall hunting
                     val h1 = cosSunAlt * cos(slope) + sinSunAlt * sin(slope) * cos(sunAzRad1 - aspect)
                     val h2 = cosSunAlt * cos(slope) + sinSunAlt * sin(slope) * cos(sunAzRad2 - aspect)
-                    var hillshade = ((h1.coerceIn(0f, 1f) * 0.65f + h2.coerceIn(0f, 1f) * 0.35f))
+                    var hillshade = h1.coerceIn(0f, 1f) * 0.65f + h2.coerceIn(0f, 1f) * 0.35f
                     hillshade = ((hillshade - 0.5f) * (contrast * 1.35f) + 0.5f).coerceIn(0f, 1f)
-                    // Emphasize depressions (cellars) in cool blue, mounds (chimney/wall) warm
-                    val residual = elevPct // 0 low 1 high after residual normalize
+                    val residual = elevPct
                     val r0 = (40 + residual * 180).toInt()
                     val g0 = (35 + residual * 120).toInt()
                     val b0 = (55 + (1f - residual) * 100).toInt()
@@ -253,11 +252,7 @@ class ElevationGrid(
         return cy * width + cx
     }
 
-    /**
-     * High-pass residual vs local mean — makes 1800s cellar holes / foundation walls
-     * readable under modern plow / gentle slope.
-     * Output normalized roughly 0..1 for palette use.
-     */
+    /** High-pass residual vs local mean for foundation / cellar visibility. */
     private fun localReliefResidual(
         elev: FloatArray,
         w: Int,
@@ -284,14 +279,10 @@ class ElevationGrid(
                 if (a > maxAbs) maxAbs = a
             }
         }
-        for (i in residual.indices) {
-            residual[i] = ((residual[i] / maxAbs) * 0.5f + 0.5f).coerceIn(0f, 1f)
-        }
-        // Scale residual map into a fake elevation range so slope calc still works
-        // Map 0..1 → meters-ish spread for Horn gradient
         val out = FloatArray(residual.size)
         for (i in residual.indices) {
-            out[i] = residual[i] * 10f
+            val norm = ((residual[i] / maxAbs) * 0.5f + 0.5f).coerceIn(0f, 1f)
+            out[i] = norm * 10f // scale so Horn slope still has signal
         }
         return out
     }

@@ -67,6 +67,9 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     private val _gridSpacing = MutableStateFlow(0f) // 0 = disabled, else grid cell %
     val gridSpacing: StateFlow<Float> = _gridSpacing.asStateFlow()
 
+    private val _zScale = MutableStateFlow(1.0f) // 1.0 = normal, 0.5 to 4.0 vertical exaggeration
+    val zScale: StateFlow<Float> = _zScale.asStateFlow()
+
     // 2. Simulated/Physical Metal Detecting Sweeper State
     private val _sweepX = MutableStateFlow(50f) // Current scan head coordinate (0 to 100)
     val sweepX: StateFlow<Float> = _sweepX.asStateFlow()
@@ -80,6 +83,16 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     // Logged/Marked Target Signals
     private val _loggedSignals = MutableStateFlow<List<TargetSignal>>(emptyList())
     val loggedSignals: StateFlow<List<TargetSignal>> = _loggedSignals.asStateFlow()
+
+    // Geo-Spatial Layer states
+    private val _activeGeoMetadata = MutableStateFlow(com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[0])
+    val activeGeoMetadata: StateFlow<com.example.geospatial.GeoSpatialLibrary.GeoSpatialMetadata> = _activeGeoMetadata.asStateFlow()
+
+    private val _currentLat = MutableStateFlow(43.1205)
+    val currentLat: StateFlow<Double> = _currentLat.asStateFlow()
+
+    private val _currentLon = MutableStateFlow(-124.4082)
+    val currentLon: StateFlow<Double> = _currentLon.asStateFlow()
 
     // 3. Sensor & Simulation Integrations
     private val magnetometerMonitor = MagnetometerMonitor(application)
@@ -154,6 +167,7 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch { _visualizationMode.collectLatest { triggerRender() } }
         viewModelScope.launch { _overlayType.collectLatest { triggerRender() } }
         viewModelScope.launch { _overlayOpacity.collectLatest { triggerRender() } }
+        viewModelScope.launch { _zScale.collectLatest { triggerRender() } }
 
         // Core background sweep loop to handle sensor simulation & continuous sound pings
         startDetectorLoop()
@@ -163,6 +177,11 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         val siteIdx = _currentSiteIndex.value
         if (siteIdx in 0..2) {
             _elevationGrid.value = DemGenerator.generateSite(siteIdx)
+            val meta = com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[siteIdx]
+            _activeGeoMetadata.value = meta
+            val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(_sweepX.value, _sweepY.value, meta)
+            _currentLat.value = coords.first
+            _currentLon.value = coords.second
         }
         triggerRender()
     }
@@ -179,6 +198,7 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
             val vis = _visualizationMode.value
             val over = _overlayType.value
             val opac = _overlayOpacity.value
+            val zs = _zScale.value
 
             val bmp = grid.renderHillshade(
                 sunAzimuth = az,
@@ -188,7 +208,8 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
                 contrast = ct,
                 visualizationMode = vis,
                 overlayType = over,
-                overlayOpacity = opac
+                overlayOpacity = opac,
+                zScale = zs
             )
 
             withContext(Dispatchers.Main) {
@@ -199,6 +220,10 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // Setters
+    fun updateZScale(scale: Float) {
+        _zScale.value = scale
+    }
+
     fun selectSite(index: Int) {
         if (index in 0..3) {
             _currentSiteIndex.value = index
@@ -227,18 +252,22 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun setCustomGrid(grid: ElevationGrid, fromGroundClassifiedLas: Boolean = true) {
+    fun setCustomGrid(grid: ElevationGrid) {
         _elevationGrid.value = grid
         _currentSiteIndex.value = 3 // custom
-        // Bare-earth / foundation hunting defaults after LiDAR load
-        if (fromGroundClassifiedLas) {
-            _vegetationFilter.value = 1.0f // full bare earth
-            _visualizationMode.value = 3 // Foundation local-relief
-            _contrast.value = 1.85f
-            _paletteType.value = 0 // clay greyscale — classic archaeology hillshade
-            _sunAltitude.value = 28f // low sun exaggerates cellar walls
-            _sunAzimuth.value = 315f
-        }
+        val meta = com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[3]
+        _activeGeoMetadata.value = meta
+        val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(_sweepX.value, _sweepY.value, meta)
+        _currentLat.value = coords.first
+        _currentLon.value = coords.second
+        // After LiDAR/DEM import: bare-earth + foundation-friendly hillshade (main UI + ground stack)
+        _vegetationFilter.value = 1.0f
+        _visualizationMode.value = 3 // Foundations local-relief
+        _contrast.value = 1.85f
+        _paletteType.value = 0 // clay greyscale
+        _sunAltitude.value = 28f
+        _sunAzimuth.value = 315f
+        _zScale.value = 2.0f // exaggerate subtle cellar walls
         triggerRender()
     }
 
@@ -263,9 +292,15 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setSweepPosition(x: Float, y: Float) {
-        _sweepX.value = x.coerceIn(0f, 100f)
-        _sweepY.value = y.coerceIn(0f, 100f)
+        val cx = x.coerceIn(0f, 100f)
+        val cy = y.coerceIn(0f, 100f)
+        _sweepX.value = cx
+        _sweepY.value = cy
         _isSweeping.value = true
+        
+        val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(cx, cy, _activeGeoMetadata.value)
+        _currentLat.value = coords.first
+        _currentLon.value = coords.second
     }
 
     fun stopSweeping() {
