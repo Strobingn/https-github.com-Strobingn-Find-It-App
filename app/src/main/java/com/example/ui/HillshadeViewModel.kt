@@ -84,6 +84,16 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     private val _loggedSignals = MutableStateFlow<List<TargetSignal>>(emptyList())
     val loggedSignals: StateFlow<List<TargetSignal>> = _loggedSignals.asStateFlow()
 
+    // Geo-Spatial Layer states
+    private val _activeGeoMetadata = MutableStateFlow(com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[0])
+    val activeGeoMetadata: StateFlow<com.example.geospatial.GeoSpatialLibrary.GeoSpatialMetadata> = _activeGeoMetadata.asStateFlow()
+
+    private val _currentLat = MutableStateFlow(43.1205)
+    val currentLat: StateFlow<Double> = _currentLat.asStateFlow()
+
+    private val _currentLon = MutableStateFlow(-124.4082)
+    val currentLon: StateFlow<Double> = _currentLon.asStateFlow()
+
     // 3. Sensor & Simulation Integrations
     private val magnetometerMonitor = MagnetometerMonitor(application)
     val isPhysicalSensorAvailable: StateFlow<Boolean> = magnetometerMonitor.isSensorAvailable
@@ -167,6 +177,11 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         val siteIdx = _currentSiteIndex.value
         if (siteIdx in 0..2) {
             _elevationGrid.value = DemGenerator.generateSite(siteIdx)
+            val meta = com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[siteIdx]
+            _activeGeoMetadata.value = meta
+            val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(_sweepX.value, _sweepY.value, meta)
+            _currentLat.value = coords.first
+            _currentLon.value = coords.second
         }
         triggerRender()
     }
@@ -240,6 +255,11 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     fun setCustomGrid(grid: ElevationGrid) {
         _elevationGrid.value = grid
         _currentSiteIndex.value = 3 // custom
+        val meta = com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[3]
+        _activeGeoMetadata.value = meta
+        val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(_sweepX.value, _sweepY.value, meta)
+        _currentLat.value = coords.first
+        _currentLon.value = coords.second
         triggerRender()
     }
 
@@ -264,9 +284,15 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun setSweepPosition(x: Float, y: Float) {
-        _sweepX.value = x.coerceIn(0f, 100f)
-        _sweepY.value = y.coerceIn(0f, 100f)
+        val cx = x.coerceIn(0f, 100f)
+        val cy = y.coerceIn(0f, 100f)
+        _sweepX.value = cx
+        _sweepY.value = cy
         _isSweeping.value = true
+        
+        val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(cx, cy, _activeGeoMetadata.value)
+        _currentLat.value = coords.first
+        _currentLon.value = coords.second
     }
 
     fun stopSweeping() {

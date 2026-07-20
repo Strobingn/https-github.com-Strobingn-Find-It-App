@@ -76,6 +76,10 @@ fun MainScreen(
     val hillshadeBitmap by viewModel.hillshadeBitmap.collectAsState()
     val isRendering by viewModel.isRendering.collectAsState()
 
+    val activeGeoMetadata by viewModel.activeGeoMetadata.collectAsState()
+    val currentLat by viewModel.currentLat.collectAsState()
+    val currentLon by viewModel.currentLon.collectAsState()
+
     val sweepX by viewModel.sweepX.collectAsState()
     val sweepY by viewModel.sweepY.collectAsState()
     val loggedSignals by viewModel.loggedSignals.collectAsState()
@@ -158,9 +162,9 @@ fun MainScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "X: ${sweepX.toInt()}  |  Y: ${sweepY.toInt()}",
+                        text = "LAT: ${String.format("%.4f", currentLat)}° | LON: ${String.format("%.4f", currentLon)}°",
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
@@ -207,6 +211,9 @@ fun MainScreen(
                 onSweepPositionChanged = { x, y -> viewModel.setSweepPosition(x, y) },
                 onStopSweeping = { viewModel.stopSweeping() },
                 gridSpacing = gridSpacing,
+                geoMetadata = activeGeoMetadata,
+                currentLat = currentLat,
+                currentLon = currentLon,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(300.dp)
