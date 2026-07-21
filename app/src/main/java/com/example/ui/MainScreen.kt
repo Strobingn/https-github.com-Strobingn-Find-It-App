@@ -5,21 +5,17 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
-import androidx.compose.material.icons.filled.CompassCalibration
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -29,9 +25,6 @@ import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,7 +33,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -62,7 +54,6 @@ import com.example.ui.components.CustomFileLoader
 import com.example.ui.components.LidarControlPanel
 import com.example.ui.components.LidarCanvasMode
 import com.example.ui.components.LidarMapCanvas
-import com.example.ui.components.MagnetometerGauge
 import com.example.ui.components.TargetLoggerPanel
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -70,8 +61,7 @@ import kotlin.math.roundToInt
 private data class AppTab(val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    AppTab("Scan", Icons.Default.Map),
-    AppTab("Terrain", Icons.Default.Tune),
+    AppTab("Terrain", Icons.Default.Map),
     AppTab("Finds", Icons.Default.Flag),
     AppTab("Import", Icons.Default.UploadFile),
 )
@@ -80,7 +70,7 @@ private val tabs = listOf(
 @Composable
 fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
     val selectedTab = rememberSaveable { mutableIntStateOf(0) }
-    val terrainFocusMode = rememberSaveable { mutableStateOf(false) }
+    val terrainFocusMode = rememberSaveable { mutableStateOf(true) }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -114,181 +104,18 @@ fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
         },
     ) { padding ->
         when (selectedTab.intValue) {
-            0 -> ScanTab(viewModel, padding)
-            1 -> TerrainTab(
+            0 -> TerrainTab(
                 viewModel = viewModel,
                 padding = padding,
                 focusMode = terrainFocusMode.value,
                 onFocusModeChanged = { terrainFocusMode.value = it },
             )
-            2 -> FindsTab(viewModel, padding)
+            1 -> FindsTab(viewModel, padding)
             else -> ImportTab(viewModel, padding) {
-                selectedTab.intValue = 1
-                terrainFocusMode.value = false
+                selectedTab.intValue = 0
+                terrainFocusMode.value = true
             }
         }
-    }
-}
-
-@Composable
-private fun ScanTab(viewModel: HillshadeViewModel, padding: PaddingValues) {
-    val bitmap by viewModel.hillshadeBitmap.collectAsStateWithLifecycle()
-    val isRendering by viewModel.isRendering.collectAsStateWithLifecycle()
-    val sweepX by viewModel.sweepX.collectAsStateWithLifecycle()
-    val sweepY by viewModel.sweepY.collectAsStateWithLifecycle()
-    val signals by viewModel.loggedSignals.collectAsStateWithLifecycle()
-    val gridSpacing by viewModel.gridSpacing.collectAsStateWithLifecycle()
-    val metadata by viewModel.activeGeoMetadata.collectAsStateWithLifecycle()
-    val latitude by viewModel.currentLat.collectAsStateWithLifecycle()
-    val longitude by viewModel.currentLon.collectAsStateWithLifecycle()
-    val strength by viewModel.detectorSignalStrength.collectAsStateWithLifecycle()
-    val detectedType by viewModel.detectedMetalType.collectAsStateWithLifecycle()
-    val depth by viewModel.detectedDepthCm.collectAsStateWithLifecycle()
-    val physicalAvailable by viewModel.isPhysicalSensorAvailable.collectAsStateWithLifecycle()
-    val usePhysical by viewModel.usePhysicalSensor.collectAsStateWithLifecycle()
-    val audio by viewModel.audioPingEnabled.collectAsStateWithLifecycle()
-    val vibration by viewModel.vibrationEnabled.collectAsStateWithLifecycle()
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(metadata.siteName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    val coordinateText = latitude?.let { lat ->
-                        longitude?.let { lon -> String.format(Locale.US, "%.6f, %.6f", lat, lon) }
-                    } ?: "Local grid ${sweepX.toInt()}, ${sweepY.toInt()} · no geographic CRS"
-                    Text(
-                        coordinateText,
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        "${metadata.crs} · ${metadata.resolutionMeters.format(2)} m/cell",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
-
-        item {
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val map: @Composable (Modifier) -> Unit = { mapModifier ->
-                    LidarMapCanvas(
-                        bitmap = bitmap,
-                        isRendering = isRendering,
-                        sweepX = sweepX,
-                        sweepY = sweepY,
-                        loggedSignals = signals,
-                        onSweepPositionChanged = viewModel::setSweepPosition,
-                        onStopSweeping = viewModel::stopSweeping,
-                        gridSpacing = gridSpacing,
-                        geoMetadata = metadata,
-                        currentLat = latitude,
-                        currentLon = longitude,
-                        modifier = mapModifier.testTag("map_canvas"),
-                    )
-                }
-                val gauge: @Composable (Modifier) -> Unit = { gaugeModifier ->
-                    MagnetometerGauge(
-                        signalStrength = strength,
-                        detectedMetal = detectedType,
-                        detectedDepthCm = depth,
-                        isPhysicalSensor = usePhysical,
-                        modifier = gaugeModifier,
-                    )
-                }
-                if (maxWidth >= 720.dp) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        map(Modifier.weight(1.25f).heightIn(min = 360.dp, max = 520.dp))
-                        gauge(Modifier.weight(0.75f))
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        map(Modifier.fillMaxWidth().aspectRatio(1.15f).heightIn(min = 340.dp, max = 580.dp))
-                        gauge(Modifier.fillMaxWidth())
-                    }
-                }
-            }
-        }
-
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Detector", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    SettingSwitch(
-                        title = "Phone magnetometer",
-                        subtitle = if (physicalAvailable) {
-                            "Reports magnetic-field anomalies; it cannot identify metal type or depth."
-                        } else {
-                            "No magnetometer is available. Template sweeps remain simulated."
-                        },
-                        checked = usePhysical,
-                        enabled = physicalAvailable,
-                        onCheckedChange = viewModel::togglePhysicalSensor,
-                    )
-                    if (usePhysical) {
-                        Button(
-                            onClick = viewModel::calibrateMagnetometer,
-                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("calibrate_button"),
-                        ) {
-                            Icon(Icons.Default.CompassCalibration, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Calibrate ambient field")
-                        }
-                    }
-                    SettingSwitch("Audio pings", "Pitch rate follows signal strength.", audio, true, viewModel::toggleAudioPing)
-                    SettingSwitch("Vibration", "Haptic pulses follow signal strength.", vibration, true, viewModel::toggleVibration)
-                    Text(
-                        depth?.let { "Simulated template depth: $it cm" } ?: "Depth: unknown",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Button(
-                        onClick = viewModel::logCurrentSignal,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                    ) { Text(if (strength > 10f) "Log current signal" else "Place manual marker") }
-                }
-            }
-        }
-        item {
-            Text(
-                "Tip: tap and drag on the terrain to sweep. Built-in sites contain clearly labeled simulated targets; imported layers do not invent targets.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingSwitch(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
@@ -336,7 +163,7 @@ private fun TerrainTab(
             sweepY = sweepY,
             loggedSignals = signals,
             onSweepPositionChanged = viewModel::setSweepPosition,
-            onStopSweeping = viewModel::stopSweeping,
+            onStopSweeping = {},
             gridSpacing = grid,
             geoMetadata = metadata,
             currentLat = null,
