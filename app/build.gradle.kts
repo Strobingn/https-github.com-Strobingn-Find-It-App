@@ -63,7 +63,8 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions { unit
+Tests { isIncludeAndroidResources = true } }
 }
 
 dependencies {
@@ -84,6 +85,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.flow)
   implementation(libs.laszip4j)
   implementation(libs.nga.tiff)
   testImplementation(libs.androidx.compose.ui.test.junit4)
