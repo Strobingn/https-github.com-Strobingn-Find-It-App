@@ -46,7 +46,6 @@ t.sp
 import com.example.data.NormalizedRasterBounds
 import com.example.data.TargetSignal
 import com.example.geospatial.GeoSpatialLibrary
-import kotlin.math.min
 
 enum class LidarCanvasMode { SURVEY, EXPLORE }
 
@@ -91,7 +90,7 @@ fun LidarMapCanvas(
         val image = imageBitmap ?: return@LaunchedEffect
         val viewportWidth = viewportSize.width.toFloat().coerceAtLeast(1f)
         val viewportHeight = viewportSize.height.toFloat().coerceAtLeast(1f)
-        val fit = min(viewportWidth / image.width, viewportHeight / image.height)
+        val fit = viewportWidth / image.width
         val displayWidth = image.width * fit * zoom
         val displayHeight = image.height * fit * zoom
         val imageLeft = (viewportWidth - displayWidth) * 0.5f + pan.x
@@ -171,8 +170,7 @@ portHeight - displayHeight) * 0.5f + pan.y
                     .fillMaxSize()
                     .onSizeChanged { viewportSize = it }
                     .then(interactionModifier)
-                    .testTag("lidar_canv
-as"),
+                    .testTag("lidar_canvas"),
             ) {
                 val canvasWidth = size.width.coerceAtLeast(1f)
                 val canvasHeight = size.height.coerceAtLeast(1f)
@@ -308,8 +306,7 @@ as"),
                     .padding(10.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xE60D0E12))
-                    .bord
-er(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
+                    .border(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
                     .padding(8.dp),
             ) {
                 if (currentLat != null && currentLon != null) {
