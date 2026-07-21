@@ -19,6 +19,7 @@ data class TargetSignalEntity(
     val source: String,
     val timestamp: Long,
     val notes: String,
+    val photoUris: String,
     val status: String,
 )
 
@@ -34,6 +35,7 @@ fun TargetSignal.toEntity() = TargetSignalEntity(
     source = source.name,
     timestamp = timestamp,
     notes = notes,
+    photoUris = photoUris.joinToString("\n") { it.replace("\n", "") },
     status = status,
 )
 
@@ -49,6 +51,7 @@ fun TargetSignalEntity.toDomain() = TargetSignal(
     source = enumValueOrDefault(source, DetectionSource.MANUAL),
     timestamp = timestamp,
     notes = notes,
+    photoUris = photoUris.lineSequence().filter { it.isNotBlank() }.toList(),
     status = status,
 )
 

@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.content.Intent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -21,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLocationAlt
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -290,6 +293,13 @@ private fun SignalCard(signal: TargetSignal, onEdit: () -> Unit, onDelete: () ->
                 if (signal.notes.isNotBlank()) {
                     Text(signal.notes, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
+                if (signal.photoUris.isNotEmpty()) {
+                    Text(
+                        "${signal.photoUris.size} photo attachment${if (signal.photoUris.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
             }
             IconButton(onClick = onEdit, modifier = Modifier.size(48.dp)) {
                 Icon(Icons.Default.Edit, contentDescription = "Edit find")
@@ -307,6 +317,19 @@ private fun EditSignalDialog(
     onDismiss: () -> Unit,
     onSave: (TargetSignal) -> Unit,
 ) {
+    val context = LocalContext.current
+    var photoUris by remember(signal.id) { mutableStateOf(signal.photoUris) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            photoUris = (photoUris + uri.toString()).distinct().take(10)
+        }
+    }
     var notes by remember(signal.id) { mutableStateOf(signal.notes) }
     var status by remember(signal.id) { mutableStateOf(signal.status) }
     val statuses = listOf("Logged", "Excavated", "Anomalous", "Trash")
@@ -323,6 +346,34 @@ private fun EditSignalDialog(
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Text("Photos (${photoUris.size}/10)", style = MaterialTheme.typography.titleSmall)
+                photoUris.forEach { photoUri ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            photoUri.substringAfterLast('/').takeLast(32),
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        TextButton(onClick = { photoUris = photoUris - photoUri }) { Text("Remove") }
+                    }
+                }
+                OutlinedButton(
+                    onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    enabled = photoUris.size < 10,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    Icon(Icons.Default.AddPhotoAlternate, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add photo")
+                }
                 statuses.chunked(2).forEach { rowStatuses ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rowStatuses.forEach { item ->
@@ -344,7 +395,11 @@ private fun EditSignalDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(signal.copy(notes = notes.trim(), status = status)) }) {
+            Button(
+                onClick = {
+                    onSave(signal.copy(notes = notes.trim(), photoUris = photoUris, status = status))
+                },
+            ) {
                 Text("Save")
             }
         },

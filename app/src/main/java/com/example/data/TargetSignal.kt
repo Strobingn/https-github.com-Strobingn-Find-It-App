@@ -17,6 +17,7 @@ data class TargetSignal(
     val source: DetectionSource = DetectionSource.MANUAL,
     val timestamp: Long = System.currentTimeMillis(),
     val notes: String = "",
+    val photoUris: List<String> = emptyList(),
     val status: String = "Logged" // "Logged", "Excavated", "Anomalous", "Trash"
 ) : Serializable
 
