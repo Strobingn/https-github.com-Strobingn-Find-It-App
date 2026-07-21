@@ -170,8 +170,7 @@ portHeight - displayHeight) * 0.5f + pan.y
                     .fillMaxSize()
                     .onSizeChanged { viewportSize = it }
                     .then(interactionModifier)
-                    .testTag("lidar_canv
-as"),
+                    .testTag("lidar_canvas"),
             ) {
                 val canvasWidth = size.width.coerceAtLeast(1f)
                 val canvasHeight = size.height.coerceAtLeast(1f)
@@ -307,8 +306,7 @@ as"),
                     .padding(10.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xE60D0E12))
-                    .bord
-er(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
+                    .border(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
                     .padding(8.dp),
             ) {
                 if (currentLat != null && currentLon != null) {
