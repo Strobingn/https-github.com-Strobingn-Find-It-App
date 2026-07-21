@@ -17,7 +17,8 @@ class ElevationGrid(
     val width: Int,
     val height: Int,
     val bareEarth: FloatArray, // Bare earth elevation values (DEM)
-    val canopySpikes: FloatArray // Height of trees/vegetation on top of bare earth (DSM)
+    val canopySpikes: FloatArray, // Height of trees/vegetation on top of bare earth (DSM)
+    val cellSizeMeters: Float = 1f,
 ) {
     init {
         require(bareEarth.size == width * height) { "bareEarth size must be width * height" }
@@ -70,7 +71,7 @@ class ElevationGrid(
         val sinSunAlt = sin(sunAltRad)
 
         // Constants for Horn's method gradient cell size
-        val cellDistance = 1.0f
+        val cellDistance = cellSizeMeters.coerceAtLeast(0.001f)
 
         // Precompute elevations with vegetation filter applied to speed up loops
         val baseElevations = FloatArray(width * height)
@@ -87,7 +88,7 @@ class ElevationGrid(
 
         // Find min and max elevations for hypsometric tinting
         var minElev = Float.MAX_VALUE
-        var maxElev = Float.MIN_VALUE
+        var maxElev = -Float.MAX_VALUE
         for (e in filteredElevations) {
             if (e < minElev) minElev = e
             if (e > maxElev) maxElev = e
@@ -138,8 +139,8 @@ class ElevationGrid(
                     finalColor = Color.rgb(rSlope, gSlope, bSlope)
                 } else if (visualizationMode == 3) {
                     // STYLE 3: Foundations (local-relief residual + multi-light) for pre-1900 cellar/wall hunting
-                    val h1 = cosSunAlt * cos(slope) + sinSunAlt * sin(slope) * cos(sunAzRad1 - aspect)
-                    val h2 = cosSunAlt * cos(slope) + sinSunAlt * sin(slope) * cos(sunAzRad2 - aspect)
+                    val h1 = sinSunAlt * cos(slope) + cosSunAlt * sin(slope) * cos(sunAzRad1 - aspect)
+                    val h2 = sinSunAlt * cos(slope) + cosSunAlt * sin(slope) * cos(sunAzRad2 - aspect)
                     var hillshade = h1.coerceIn(0f, 1f) * 0.65f + h2.coerceIn(0f, 1f) * 0.35f
                     hillshade = ((hillshade - 0.5f) * (contrast * 1.35f) + 0.5f).coerceIn(0f, 1f)
                     val residual = elevPct
@@ -155,12 +156,12 @@ class ElevationGrid(
                     // STYLE 0 & 1: Hillshading calculations
                     var hillshade = if (visualizationMode == 1) {
                         // Multi-directional relief: combine primary (NW) and secondary (SE) shadow shading
-                        val h1 = cosSunAlt * cos(slope) + sinSunAlt * sin(slope) * cos(sunAzRad1 - aspect)
-                        val h2 = cosSunAlt * cos(slope) + sinSunAlt * sin(slope) * cos(sunAzRad2 - aspect)
+                        val h1 = sinSunAlt * cos(slope) + cosSunAlt * sin(slope) * cos(sunAzRad1 - aspect)
+                        val h2 = sinSunAlt * cos(slope) + cosSunAlt * sin(slope) * cos(sunAzRad2 - aspect)
                         ((h1.coerceIn(0f, 1f) + h2.coerceIn(0f, 1f)) / 2f)
                     } else {
                         // Standard Hillshade
-                        val h = cosSunAlt * cos(slope) + sinSunAlt * sin(slope) * cos(sunAzRad1 - aspect)
+                        val h = sinSunAlt * cos(slope) + cosSunAlt * sin(slope) * cos(sunAzRad1 - aspect)
                         h.coerceIn(0f, 1f)
                     }
 

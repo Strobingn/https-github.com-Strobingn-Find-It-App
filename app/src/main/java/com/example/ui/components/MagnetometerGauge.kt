@@ -48,6 +48,7 @@ import kotlin.math.sin
 fun MagnetometerGauge(
     signalStrength: Float, // 0 to 100
     detectedMetal: MetalType?,
+    detectedDepthCm: Int? = null,
     isPhysicalSensor: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -84,7 +85,7 @@ fun MagnetometerGauge(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (isPhysicalSensor) "PHYSICAL COIL (ACTIVE)" else "SIMULATED SWEEP COIL",
+                    text = if (isPhysicalSensor) "PHONE MAGNETOMETER" else "SIMULATED TEMPLATE SWEEP",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.LightGray,
                     letterSpacing = 1.2.sp
@@ -208,9 +209,9 @@ fun MagnetometerGauge(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "METALLIC SIG",
+                        text = if (isPhysicalSensor) "FIELD DEVIATION" else "SIMULATED SIGNAL",
                         color = Color.Gray,
-                        fontSize = 9.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp
                     )
@@ -248,7 +249,7 @@ fun MagnetometerGauge(
                     ) {
                         Column {
                             Text(
-                                text = "SIGNAL ACQUIRED!",
+                                text = if (isPhysicalSensor) "ANOMALY DETECTED" else "SIMULATED TARGET",
                                 color = Color(detectedMetal.colorHex),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
@@ -263,23 +264,23 @@ fun MagnetometerGauge(
                             )
                         }
 
-                        // Approximate Depth representation
-                        Column(horizontalAlignment = Alignment.End) {
-                            val estDepth = (10 + (100f - signalStrength) * 0.4f).toInt().coerceIn(4, 50)
+                        if (detectedDepthCm != null) {
+                            Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = "EST. DEPTH",
+                                text = "TEMPLATE DEPTH",
                                 color = Color.LightGray,
-                                fontSize = 9.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "${estDepth} cm",
+                                text = "$detectedDepthCm cm",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 18.sp,
                                 fontFamily = FontFamily.Monospace
                             )
+                            }
                         }
                     }
                 } else {
@@ -296,9 +297,9 @@ fun MagnetometerGauge(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "No metal target detected under coil.",
+                            text = if (isPhysicalSensor) "No magnetic-field anomaly." else "No simulated target under the sweep.",
                             color = Color.Gray,
-                            fontSize = 11.sp,
+                            fontSize = 13.sp,
                             textAlign = TextAlign.Center
                         )
                     }

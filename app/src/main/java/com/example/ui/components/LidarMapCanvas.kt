@@ -57,8 +57,8 @@ fun LidarMapCanvas(
     onStopSweeping: () -> Unit,
     gridSpacing: Float = 0f,
     geoMetadata: GeoSpatialLibrary.GeoSpatialMetadata,
-    currentLat: Double,
-    currentLon: Double,
+    currentLat: Double?,
+    currentLon: Double?,
     modifier: Modifier = Modifier,
 ) {
     // Cache ImageBitmap — recreating every drag frame can crash if Bitmap is mid-render
@@ -82,7 +82,7 @@ fun LidarMapCanvas(
                 modifier = Modifier
                     .fillMaxSize()
                     // ONE gesture handler only — dual detectTap+detectDrag crashed on hold/drag
-                    .pointerInput(Unit) {
+                    .pointerInput(onSweepPositionChanged, onStopSweeping) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val w = size.width.toFloat().coerceAtLeast(1f)
@@ -212,7 +212,7 @@ fun LidarMapCanvas(
                     Text(
                         text = geoMetadata.siteName.uppercase(),
                         color = Color(0xFFFFD700),
-                        fontSize = 8.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 0.5.sp,
@@ -220,13 +220,13 @@ fun LidarMapCanvas(
                     Text(
                         text = "${geoMetadata.crs} • ${geoMetadata.datum}",
                         color = Color.LightGray,
-                        fontSize = 7.5.sp,
+                        fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                     )
                 }
             }
 
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
@@ -235,108 +235,34 @@ fun LidarMapCanvas(
                     .background(Color(0xE60D0E12))
                     .border(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
                     .padding(8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
-                    val utm = try {
-                        GeoSpatialLibrary.geographicToUtmZone10(currentLat, currentLon)
-                    } catch (_: Exception) {
-                        0.0 to 0.0
-                    }
+                if (currentLat != null && currentLon != null) {
+                    val utm = runCatching {
+                        GeoSpatialLibrary.geographicToUtm(currentLat, currentLon)
+                    }.getOrNull()
                     Text(
-                        text = "LAT: ${GeoSpatialLibrary.formatDMS(currentLat, true)}",
+                        text = "${GeoSpatialLibrary.formatDms(currentLat, true)}  ·  ${GeoSpatialLibrary.formatDms(currentLon, false)}",
                         color = Color.White,
-                        fontSize = 9.5.sp,
+                        fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                     )
+                    if (utm != null) {
+                        Text(
+                            text = "UTM ${utm.zone}${utm.hemisphere}  E ${"%.1f".format(utm.easting)} m  N ${"%.1f".format(utm.northing)} m",
+                            color = Color(0xFF64B5F6),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                } else {
                     Text(
-                        text = "LON: ${GeoSpatialLibrary.formatDMS(currentLon, false)}",
+                        text = "Local grid ${sweepX.toInt()}, ${sweepY.toInt()} · Geographic CRS unavailable",
                         color = Color.White,
-                        fontSize = 9.5.sp,
+                        fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text(
-                        text = "UTM10: E ${"%.1f".format(utm.first)}m | N ${"%.1f".format(utm.second)}m",
-                        color = Color(0xFF29B6F6),
-                        fontSize = 8.sp,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "SCALE BAR",
-                            color = Color.Gray,
-                            fontSize = 7.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        val scalePct = 0.15f
-                        val realMeters = scalePct * 100 * geoMetadata.resolutionMeters
-                        Box(
-                            modifier = Modifier
-                                .width(40.dp)
-                                .height(5.dp)
-                                .background(Color.White.copy(alpha = 0.15f))
-                                .border(0.5.dp, Color.White),
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.CenterStart)
-                                        .width(1.dp)
-                                        .height(5.dp)
-                                        .background(Color.White),
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.CenterEnd)
-                                        .width(1.dp)
-                                        .height(5.dp)
-                                        .background(Color.White),
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(1.dp))
-                        Text(
-                            text = "${"%.1f".format(realMeters)}m",
-                            color = Color.White,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .height(24.dp)
-                            .width(1.dp)
-                            .background(Color(0xFF2C2E35)),
-                    )
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Flag,
-                            contentDescription = "True North Arrow",
-                            tint = Color(0xFFFFD700),
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Text(
-                            text = "TRUE N",
-                            color = Color(0xFFFFD700),
-                            fontSize = 7.5.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
                 }
             }
         } else {

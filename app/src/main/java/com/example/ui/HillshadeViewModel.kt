@@ -10,497 +10,362 @@ import android.os.Vibrator
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.DemGenerator
+import com.example.data.DetectionSource
 import com.example.data.ElevationGrid
 import com.example.data.MetalType
 import com.example.data.TargetSignal
+import com.example.data.local.AppDatabase
+import com.example.data.local.toDomain
+import com.example.data.local.toEntity
+import com.example.geospatial.GeoSpatialLibrary
+import com.example.geospatial.GeoSpatialLibrary.GeoSpatialMetadata
 import com.example.sensor.MagnetometerMonitor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 class HillshadeViewModel(application: Application) : AndroidViewModel(application) {
+    private val signalDao = AppDatabase.get(application).targetSignalDao()
 
-    // 1. Lidar Terrain & Rendering States
-    private val _currentSiteIndex = MutableStateFlow(0) // 0 = Homestead, 1 = Fort, 2 = Villa, 3 = Custom
+    private val _currentSiteIndex = MutableStateFlow(0)
     val currentSiteIndex: StateFlow<Int> = _currentSiteIndex.asStateFlow()
-
-    private val _elevationGrid = MutableStateFlow<ElevationGrid>(DemGenerator.generateSite(0))
+    private val _elevationGrid = MutableStateFlow(DemGenerator.generateSite(0))
     val elevationGrid: StateFlow<ElevationGrid> = _elevationGrid.asStateFlow()
+    private var customGrid: ElevationGrid? = null
 
-    private val _sunAzimuth = MutableStateFlow(315f) // Sun in North-West by default casts beautiful shadows
-    val sunAzimuth: StateFlow<Float> = _sunAzimuth.asStateFlow()
-
-    private val _sunAltitude = MutableStateFlow(35f) // Mid-low sun casts longer, easier-to-see shadows
-    val sunAltitude: StateFlow<Float> = _sunAltitude.asStateFlow()
-
-    private val _vegetationFilter = MutableStateFlow(0.8f) // 80% filtered by default
-    val vegetationFilter: StateFlow<Float> = _vegetationFilter.asStateFlow()
-
-    private val _paletteType = MutableStateFlow(1) // 0 = Clay, 1 = Copper, 2 = Terra
-    val paletteType: StateFlow<Int> = _paletteType.asStateFlow()
-
+    private val _sunAzimuth = MutableStateFlow(315f)
+    val sunAzimuth = _sunAzimuth.asStateFlow()
+    private val _sunAltitude = MutableStateFlow(35f)
+    val sunAltitude = _sunAltitude.asStateFlow()
+    private val _vegetationFilter = MutableStateFlow(0.8f)
+    val vegetationFilter = _vegetationFilter.asStateFlow()
+    private val _paletteType = MutableStateFlow(1)
+    val paletteType = _paletteType.asStateFlow()
     private val _contrast = MutableStateFlow(1.5f)
-    val contrast: StateFlow<Float> = _contrast.asStateFlow()
+    val contrast = _contrast.asStateFlow()
+    private val _visualizationMode = MutableStateFlow(0)
+    val visualizationMode = _visualizationMode.asStateFlow()
+    private val _overlayType = MutableStateFlow(0)
+    val overlayType = _overlayType.asStateFlow()
+    private val _overlayOpacity = MutableStateFlow(0.4f)
+    val overlayOpacity = _overlayOpacity.asStateFlow()
+    private val _gridSpacing = MutableStateFlow(0f)
+    val gridSpacing = _gridSpacing.asStateFlow()
+    private val _zScale = MutableStateFlow(1f)
+    val zScale = _zScale.asStateFlow()
 
     private val _hillshadeBitmap = MutableStateFlow<Bitmap?>(null)
-    val hillshadeBitmap: StateFlow<Bitmap?> = _hillshadeBitmap.asStateFlow()
-
+    val hillshadeBitmap = _hillshadeBitmap.asStateFlow()
     private val _isRendering = MutableStateFlow(false)
-    val isRendering: StateFlow<Boolean> = _isRendering.asStateFlow()
+    val isRendering = _isRendering.asStateFlow()
+    private val renderMutex = Mutex()
+    private var renderJob: Job? = null
+    private var renderGeneration = 0L
 
-    private val _visualizationMode = MutableStateFlow(0) // 0 = Standard, 1 = Multi-Directional, 2 = Slope Map
-    val visualizationMode: StateFlow<Int> = _visualizationMode.asStateFlow()
-
-    private val _overlayType = MutableStateFlow(0) // 0 = None, 1 = 1880s Plat, 2 = 1940s Contours
-    val overlayType: StateFlow<Int> = _overlayType.asStateFlow()
-
-    private val _overlayOpacity = MutableStateFlow(0.4f)
-    val overlayOpacity: StateFlow<Float> = _overlayOpacity.asStateFlow()
-
-    private val _gridSpacing = MutableStateFlow(0f) // 0 = disabled, else grid cell %
-    val gridSpacing: StateFlow<Float> = _gridSpacing.asStateFlow()
-
-    private val _zScale = MutableStateFlow(1.0f) // 1.0 = normal, 0.5 to 4.0 vertical exaggeration
-    val zScale: StateFlow<Float> = _zScale.asStateFlow()
-
-    // 2. Simulated/Physical Metal Detecting Sweeper State
-    private val _sweepX = MutableStateFlow(50f) // Current scan head coordinate (0 to 100)
-    val sweepX: StateFlow<Float> = _sweepX.asStateFlow()
-
+    private val _sweepX = MutableStateFlow(50f)
+    val sweepX = _sweepX.asStateFlow()
     private val _sweepY = MutableStateFlow(50f)
-    val sweepY: StateFlow<Float> = _sweepY.asStateFlow()
-
+    val sweepY = _sweepY.asStateFlow()
     private val _isSweeping = MutableStateFlow(false)
-    val isSweeping: StateFlow<Boolean> = _isSweeping.asStateFlow()
+    val isSweeping = _isSweeping.asStateFlow()
 
-    // Logged/Marked Target Signals
     private val _loggedSignals = MutableStateFlow<List<TargetSignal>>(emptyList())
-    val loggedSignals: StateFlow<List<TargetSignal>> = _loggedSignals.asStateFlow()
+    val loggedSignals = _loggedSignals.asStateFlow()
 
-    // Geo-Spatial Layer states
-    private val _activeGeoMetadata = MutableStateFlow(com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[0])
-    val activeGeoMetadata: StateFlow<com.example.geospatial.GeoSpatialLibrary.GeoSpatialMetadata> = _activeGeoMetadata.asStateFlow()
+    private val _activeGeoMetadata = MutableStateFlow(GeoSpatialLibrary.SITES_METADATA.first())
+    val activeGeoMetadata: StateFlow<GeoSpatialMetadata> = _activeGeoMetadata.asStateFlow()
+    private val _currentLat = MutableStateFlow<Double?>(null)
+    val currentLat: StateFlow<Double?> = _currentLat.asStateFlow()
+    private val _currentLon = MutableStateFlow<Double?>(null)
+    val currentLon: StateFlow<Double?> = _currentLon.asStateFlow()
 
-    private val _currentLat = MutableStateFlow(43.1205)
-    val currentLat: StateFlow<Double> = _currentLat.asStateFlow()
-
-    private val _currentLon = MutableStateFlow(-124.4082)
-    val currentLon: StateFlow<Double> = _currentLon.asStateFlow()
-
-    // 3. Sensor & Simulation Integrations
     private val magnetometerMonitor = MagnetometerMonitor(application)
-    val isPhysicalSensorAvailable: StateFlow<Boolean> = magnetometerMonitor.isSensorAvailable
-
+    val isPhysicalSensorAvailable = magnetometerMonitor.isSensorAvailable
     private val _usePhysicalSensor = MutableStateFlow(false)
-    val usePhysicalSensor: StateFlow<Boolean> = _usePhysicalSensor.asStateFlow()
-
-    // Combines physical sensor values or simulation algorithms to get current detector strength (0-100)
+    val usePhysicalSensor = _usePhysicalSensor.asStateFlow()
     private val _detectorSignalStrength = MutableStateFlow(0f)
-    val detectorSignalStrength: StateFlow<Float> = _detectorSignalStrength.asStateFlow()
-
-    // The metal type currently under the scan head (if any)
+    val detectorSignalStrength = _detectorSignalStrength.asStateFlow()
     private val _detectedMetalType = MutableStateFlow<MetalType?>(null)
-    val detectedMetalType: StateFlow<MetalType?> = _detectedMetalType.asStateFlow()
+    val detectedMetalType = _detectedMetalType.asStateFlow()
+    private val _detectedDepthCm = MutableStateFlow<Int?>(null)
+    val detectedDepthCm = _detectedDepthCm.asStateFlow()
 
-    // Audio / Haptic settings
     private val _audioPingEnabled = MutableStateFlow(true)
-    val audioPingEnabled: StateFlow<Boolean> = _audioPingEnabled.asStateFlow()
-
+    val audioPingEnabled = _audioPingEnabled.asStateFlow()
     private val _vibrationEnabled = MutableStateFlow(true)
-    val vibrationEnabled: StateFlow<Boolean> = _vibrationEnabled.asStateFlow()
-
-    // Tone Generator for real-time audio pings
-    private var toneGenerator: ToneGenerator? = null
-    private var audioJob: Job? = null
+    val vibrationEnabled = _vibrationEnabled.asStateFlow()
     private val vibrator = application.getSystemService(Application.VIBRATOR_SERVICE) as Vibrator
+    private var toneGenerator: ToneGenerator? = null
+    private var detectorJob: Job? = null
 
-    // Preloaded "Hidden Target Treasures" for each site
-    // Keeps track of where the metal objects are so we can trigger proximity alerts
-    private val homesteadTargets = listOf(
-        SimulatedTarget(25f, 65f, MetalType.GOLD, 95f, 12),     // Near Well
-        SimulatedTarget(42f, 44f, MetalType.SILVER, 85f, 22),   // Cellar wall corner
-        SimulatedTarget(45f, 39f, MetalType.BRONZE, 72f, 30),   // Chimney base
-        SimulatedTarget(58f, 50f, MetalType.IRON, 60f, 8)       // Surrounding trash heap
-    )
-
-    private val fortTargets = listOf(
-        SimulatedTarget(50f, 52f, MetalType.BRONZE, 90f, 38),   // Inside the gun circular parapet
-        SimulatedTarget(48f, 35f, MetalType.SILVER, 78f, 18),   // Officer quarters corner
-        SimulatedTarget(35f, 60f, MetalType.IRON, 92f, 10),     // Inside defensive trench
-        SimulatedTarget(66f, 40f, MetalType.IRON, 55f, 25)      // Scattered canister shot
-    )
-
-    private val villaTargets = listOf(
-        SimulatedTarget(42f, 45f, MetalType.GOLD, 98f, 16),     // Inside villa peristyle
-        SimulatedTarget(68f, 30f, MetalType.BRONZE, 82f, 28),   // Round shrine base
-        SimulatedTarget(22f, 35f, MetalType.SILVER, 88f, 10),   // Roman road side ditch
-        SimulatedTarget(49f, 41f, MetalType.IRON, 50f, 35)      // Structural nail
+    private val simulatedTargets = listOf(
+        listOf(
+            SimulatedTarget(25f, 65f, MetalType.GOLD, 95f, 12),
+            SimulatedTarget(42f, 44f, MetalType.SILVER, 85f, 22),
+            SimulatedTarget(45f, 39f, MetalType.BRONZE, 72f, 30),
+            SimulatedTarget(58f, 50f, MetalType.IRON, 60f, 8),
+        ),
+        listOf(
+            SimulatedTarget(50f, 52f, MetalType.BRONZE, 90f, 38),
+            SimulatedTarget(48f, 35f, MetalType.SILVER, 78f, 18),
+            SimulatedTarget(35f, 60f, MetalType.IRON, 92f, 10),
+            SimulatedTarget(66f, 40f, MetalType.IRON, 55f, 25),
+        ),
+        listOf(
+            SimulatedTarget(42f, 45f, MetalType.GOLD, 98f, 16),
+            SimulatedTarget(68f, 30f, MetalType.BRONZE, 82f, 28),
+            SimulatedTarget(22f, 35f, MetalType.SILVER, 88f, 10),
+            SimulatedTarget(49f, 41f, MetalType.IRON, 50f, 35),
+        ),
     )
 
     init {
-        // Safe creation of ToneGenerator
-        try {
-            toneGenerator = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-        } catch (e: Exception) {
-            e.printStackTrace()
+        toneGenerator = try {
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
+        } catch (_: RuntimeException) {
+            null
         }
-
-        // Auto-listen to the physical magnetometer
-        magnetometerMonitor.startListening()
-
-        // Sync rendering whenever options change
+        updateCoordinates()
+        scheduleRender(immediate = true)
         viewModelScope.launch {
-            _currentSiteIndex.collectLatest { renderCurrentSite() }
+            signalDao.observeAll().collect { stored ->
+                _loggedSignals.value = stored.map { it.toDomain() }
+            }
         }
-        viewModelScope.launch { _sunAzimuth.collectLatest { triggerRender() } }
-        viewModelScope.launch { _sunAltitude.collectLatest { triggerRender() } }
-        viewModelScope.launch { _vegetationFilter.collectLatest { triggerRender() } }
-        viewModelScope.launch { _paletteType.collectLatest { triggerRender() } }
-        viewModelScope.launch { _contrast.collectLatest { triggerRender() } }
-        viewModelScope.launch { _visualizationMode.collectLatest { triggerRender() } }
-        viewModelScope.launch { _overlayType.collectLatest { triggerRender() } }
-        viewModelScope.launch { _overlayOpacity.collectLatest { triggerRender() } }
-        viewModelScope.launch { _zScale.collectLatest { triggerRender() } }
-
-        // Core background sweep loop to handle sensor simulation & continuous sound pings
         startDetectorLoop()
     }
 
-    private fun renderCurrentSite() {
-        val siteIdx = _currentSiteIndex.value
-        if (siteIdx in 0..2) {
-            _elevationGrid.value = DemGenerator.generateSite(siteIdx)
-            val meta = com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[siteIdx]
-            _activeGeoMetadata.value = meta
-            val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(_sweepX.value, _sweepY.value, meta)
-            _currentLat.value = coords.first
-            _currentLon.value = coords.second
-        }
-        triggerRender()
-    }
-
-    private fun triggerRender() {
-        _isRendering.value = true
-        viewModelScope.launch(Dispatchers.Default) {
-            val grid = _elevationGrid.value
-            val az = _sunAzimuth.value
-            val alt = _sunAltitude.value
-            val veg = _vegetationFilter.value
-            val pal = _paletteType.value
-            val ct = _contrast.value
-            val vis = _visualizationMode.value
-            val over = _overlayType.value
-            val opac = _overlayOpacity.value
-            val zs = _zScale.value
-
-            val bmp = grid.renderHillshade(
-                sunAzimuth = az,
-                sunAltitude = alt,
-                vegetationFilter = veg,
-                palette = pal,
-                contrast = ct,
-                visualizationMode = vis,
-                overlayType = over,
-                overlayOpacity = opac,
-                zScale = zs
-            )
-
-            withContext(Dispatchers.Main) {
-                _hillshadeBitmap.value = bmp
-                _isRendering.value = false
+    private fun scheduleRender(immediate: Boolean = false) {
+        val generation = ++renderGeneration
+        renderJob?.cancel()
+        renderJob = viewModelScope.launch {
+            if (!immediate) delay(80)
+            _isRendering.value = true
+            try {
+                renderMutex.withLock {
+                    val grid = _elevationGrid.value
+                    val bitmap = withContext(Dispatchers.Default) {
+                        grid.renderHillshade(
+                            sunAzimuth = _sunAzimuth.value,
+                            sunAltitude = _sunAltitude.value,
+                            vegetationFilter = _vegetationFilter.value,
+                            palette = _paletteType.value,
+                            contrast = _contrast.value,
+                            visualizationMode = _visualizationMode.value,
+                            overlayType = _overlayType.value,
+                            overlayOpacity = _overlayOpacity.value,
+                            zScale = _zScale.value,
+                        )
+                    }
+                    if (generation == renderGeneration) _hillshadeBitmap.value = bitmap
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } finally {
+                if (generation == renderGeneration) _isRendering.value = false
             }
         }
     }
 
-    // Setters
-    fun updateZScale(scale: Float) {
-        _zScale.value = scale
-    }
-
     fun selectSite(index: Int) {
-        if (index in 0..3) {
-            _currentSiteIndex.value = index
+        if (index !in 0..3 || index == 3 && customGrid == null) return
+        _currentSiteIndex.value = index
+        if (index in 0..2) {
+            _elevationGrid.value = DemGenerator.generateSite(index)
+            _activeGeoMetadata.value = GeoSpatialLibrary.SITES_METADATA[index]
+        } else {
+            _elevationGrid.value = requireNotNull(customGrid)
         }
-    }
-
-    fun updateVisualizationMode(mode: Int) {
-        _visualizationMode.value = mode
-    }
-
-    fun updateOverlayType(type: Int) {
-        _overlayType.value = type
-    }
-
-    fun updateOverlayOpacity(opacity: Float) {
-        _overlayOpacity.value = opacity
-    }
-
-    fun updateGridSpacing(spacing: Float) {
-        _gridSpacing.value = spacing
-    }
-
-    fun updateLoggedSignal(updatedSignal: TargetSignal) {
-        _loggedSignals.value = _loggedSignals.value.map {
-            if (it.id == updatedSignal.id) updatedSignal else it
-        }
+        updateCoordinates()
+        scheduleRender(immediate = true)
     }
 
     fun setCustomGrid(grid: ElevationGrid) {
+        customGrid = grid
         _elevationGrid.value = grid
-        _currentSiteIndex.value = 3 // custom
-        val meta = com.example.geospatial.GeoSpatialLibrary.SITES_METADATA[3]
-        _activeGeoMetadata.value = meta
-        val coords = com.example.geospatial.GeoSpatialLibrary.gridToGeographic(_sweepX.value, _sweepY.value, meta)
-        _currentLat.value = coords.first
-        _currentLon.value = coords.second
-        // After LiDAR/DEM import: bare-earth + foundation-friendly hillshade (main UI + ground stack)
-        _vegetationFilter.value = 1.0f
-        _visualizationMode.value = 3 // Foundations local-relief
+        _currentSiteIndex.value = 3
+        _activeGeoMetadata.value = GeoSpatialLibrary.localGrid(
+            name = "Custom imported layer",
+            columns = grid.width,
+            rows = grid.height,
+            resolutionMeters = grid.cellSizeMeters.toDouble(),
+        )
+        _vegetationFilter.value = 1f
+        _visualizationMode.value = 3
         _contrast.value = 1.85f
-        _paletteType.value = 0 // clay greyscale
+        _paletteType.value = 0
         _sunAltitude.value = 28f
         _sunAzimuth.value = 315f
-        _zScale.value = 2.0f // exaggerate subtle cellar walls
-        triggerRender()
+        _zScale.value = 2f
+        updateCoordinates()
+        scheduleRender(immediate = true)
     }
 
-    fun updateSunAzimuth(az: Float) {
-        _sunAzimuth.value = az
-    }
-
-    fun updateSunAltitude(alt: Float) {
-        _sunAltitude.value = alt
-    }
-
-    fun updateVegetationFilter(filter: Float) {
-        _vegetationFilter.value = filter
-    }
-
-    fun updatePalette(palette: Int) {
-        _paletteType.value = palette
-    }
-
-    fun updateContrast(ct: Float) {
-        _contrast.value = ct
-    }
+    fun updateSunAzimuth(value: Float) { _sunAzimuth.value = value.coerceIn(0f, 360f); scheduleRender() }
+    fun updateSunAltitude(value: Float) { _sunAltitude.value = value.coerceIn(5f, 85f); scheduleRender() }
+    fun updateVegetationFilter(value: Float) { _vegetationFilter.value = value.coerceIn(0f, 1f); scheduleRender() }
+    fun updatePalette(value: Int) { _paletteType.value = value.coerceIn(0, 2); scheduleRender() }
+    fun updateContrast(value: Float) { _contrast.value = value.coerceIn(1f, 2.5f); scheduleRender() }
+    fun updateVisualizationMode(value: Int) { _visualizationMode.value = value.coerceIn(0, 3); scheduleRender() }
+    fun updateOverlayType(value: Int) { _overlayType.value = value.coerceIn(0, 2); scheduleRender() }
+    fun updateOverlayOpacity(value: Float) { _overlayOpacity.value = value.coerceIn(0.1f, 0.9f); scheduleRender() }
+    fun updateGridSpacing(value: Float) { _gridSpacing.value = value.coerceIn(0f, 20f) }
+    fun updateZScale(value: Float) { _zScale.value = value.coerceIn(0.5f, 4f); scheduleRender() }
 
     fun setSweepPosition(x: Float, y: Float) {
-        val cx = x.coerceIn(0f, 100f)
-        val cy = y.coerceIn(0f, 100f)
-        _sweepX.value = cx
-        _sweepY.value = cy
+        _sweepX.value = x.coerceIn(0f, 100f)
+        _sweepY.value = y.coerceIn(0f, 100f)
         _isSweeping.value = true
-        try {
-            val coords =
-                com.example.geospatial.GeoSpatialLibrary.gridToGeographic(
-                    cx,
-                    cy,
-                    _activeGeoMetadata.value,
-                )
-            _currentLat.value = coords.first
-            _currentLon.value = coords.second
-        } catch (_: Exception) {
-            // Keep last known lat/lon — never crash mid-drag
-        }
+        updateCoordinates()
+    }
+
+    private fun updateCoordinates() {
+        val coordinate = GeoSpatialLibrary.gridToGeographic(
+            _sweepX.value,
+            _sweepY.value,
+            _activeGeoMetadata.value,
+        )
+        _currentLat.value = coordinate?.first
+        _currentLon.value = coordinate?.second
     }
 
     fun stopSweeping() {
         _isSweeping.value = false
-        // Leave last strength briefly visible; zero after short settle so dial doesn't glitch
-        _detectorSignalStrength.value = 0f
-        _detectedMetalType.value = null
-    }
-
-    fun togglePhysicalSensor(enabled: Boolean) {
-        _usePhysicalSensor.value = enabled
-    }
-
-    fun toggleAudioPing(enabled: Boolean) {
-        _audioPingEnabled.value = enabled
-    }
-
-    fun toggleVibration(enabled: Boolean) {
-        _vibrationEnabled.value = enabled
-    }
-
-    fun calibrateMagnetometer() {
-        magnetometerMonitor.calibrateBaseline()
-    }
-
-    /**
-     * Records/logs the metal target currently under the sweeper coil.
-     */
-    fun logCurrentSignal() {
-        val signalStrength = _detectorSignalStrength.value
-        val metal = _detectedMetalType.value
-
-        if (signalStrength > 10f && metal != null) {
-            // Strong metal signal detected! Log it
-            val depth = (10 + (100f - signalStrength) * 0.4f).toInt().coerceIn(4, 50)
-            val newSignal = TargetSignal(
-                gridX = _sweepX.value,
-                gridY = _sweepY.value,
-                metalType = metal,
-                signalStrength = signalStrength,
-                depthCm = depth
-            )
-            _loggedSignals.value = _loggedSignals.value + newSignal
-            triggerVibe(100) // sharp confirmation buzz
-        } else {
-            // Manual marker place: let the user place a generic marker
-            val newSignal = TargetSignal(
-                gridX = _sweepX.value,
-                gridY = _sweepY.value,
-                metalType = MetalType.GOLD,
-                signalStrength = 100f,
-                depthCm = 15
-            )
-            _loggedSignals.value = _loggedSignals.value + newSignal
-            triggerVibe(50)
+        if (!_usePhysicalSensor.value) {
+            _detectorSignalStrength.value = 0f
+            _detectedMetalType.value = null
+            _detectedDepthCm.value = null
         }
     }
 
+    fun togglePhysicalSensor(enabled: Boolean) {
+        val shouldEnable = enabled && isPhysicalSensorAvailable.value
+        _usePhysicalSensor.value = shouldEnable
+        if (shouldEnable) magnetometerMonitor.startListening() else magnetometerMonitor.stopListening()
+        _detectorSignalStrength.value = 0f
+        _detectedMetalType.value = null
+        _detectedDepthCm.value = null
+    }
+
+    fun toggleAudioPing(enabled: Boolean) { _audioPingEnabled.value = enabled }
+    fun toggleVibration(enabled: Boolean) { _vibrationEnabled.value = enabled }
+    fun calibrateMagnetometer() { if (_usePhysicalSensor.value) magnetometerMonitor.calibrateBaseline() }
+
+    fun logCurrentSignal() {
+        val strength = _detectorSignalStrength.value
+        val detected = _detectedMetalType.value
+        val source = when {
+            strength > 10f && _usePhysicalSensor.value -> DetectionSource.MAGNETOMETER
+            strength > 10f && detected != null -> DetectionSource.SIMULATED
+            else -> DetectionSource.MANUAL
+        }
+        val signal = TargetSignal(
+            gridX = _sweepX.value,
+            gridY = _sweepY.value,
+            metalType = detected?.takeIf { strength > 10f } ?: MetalType.MANUAL_MARKER,
+            signalStrength = strength.takeIf { strength > 10f } ?: 0f,
+            depthCm = _detectedDepthCm.value.takeIf { source == DetectionSource.SIMULATED },
+            latitude = _currentLat.value,
+            longitude = _currentLon.value,
+            source = source,
+        )
+        viewModelScope.launch { signalDao.upsert(signal.toEntity()) }
+        if (_vibrationEnabled.value) triggerVibe(if (source == DetectionSource.MANUAL) 50 else 100)
+    }
+
+    fun updateLoggedSignal(signal: TargetSignal) {
+        viewModelScope.launch { signalDao.upsert(signal.toEntity()) }
+    }
+
     fun deleteLoggedSignal(signal: TargetSignal) {
-        _loggedSignals.value = _loggedSignals.value.filter { it.id != signal.id }
+        viewModelScope.launch { signalDao.deleteById(signal.id) }
     }
 
     fun clearLoggedSignals() {
-        _loggedSignals.value = emptyList()
+        viewModelScope.launch { signalDao.deleteAll() }
     }
 
-    /**
-     * Loops continuously in the background to calculate target proximities,
-     * updates the magnetometer dials, and makes high-speed metal detector beeping noises.
-     */
     private fun startDetectorLoop() {
-        audioJob = viewModelScope.launch(Dispatchers.Default) {
+        detectorJob = viewModelScope.launch(Dispatchers.Default) {
             while (true) {
-                val usePhysical = _usePhysicalSensor.value
-                val x = _sweepX.value
-                val y = _sweepY.value
-                val isSw = _isSweeping.value
-
                 var strength = 0f
                 var type: MetalType? = null
-
-                if (usePhysical) {
-                    // 1. PHYSICAL HARDWARE SENSOR CALCULATIONS
-                    val rawStrength = magnetometerMonitor.magneticFieldStrength.value
-                    val baseline = magnetometerMonitor.ambientBaseline.value
-                    // Compute absolute deviation from baseline
-                    val deviation = Math.abs(rawStrength - baseline)
-                    
-                    // Map a 1.0 uT to 40.0 uT deviation to a 0% to 100% signal strength
+                var depth: Int? = null
+                if (_usePhysicalSensor.value) {
+                    val deviation = abs(
+                        magnetometerMonitor.magneticFieldStrength.value -
+                            magnetometerMonitor.ambientBaseline.value,
+                    )
                     strength = ((deviation / 25f) * 100f).coerceIn(0f, 100f)
-                    
-                    // Guess metal type based on polarity:
-                    // Large negative dip is usually ferrous/iron, high spike is usually precious metal
-                    type = if (rawStrength < baseline - 2.5f) {
-                        MetalType.IRON
-                    } else if (deviation > 10f) {
-                        MetalType.GOLD
-                    } else if (deviation > 4f) {
-                        MetalType.SILVER
-                    } else if (deviation > 1.5f) {
-                        MetalType.BRONZE
-                    } else {
-                        null
-                    }
-                } else if (isSw) {
-                    // 2. SIMULATED GEOGRAPHIC TREASURE HUNTER
-                    // Find the hidden targets for the active preloaded site
-                    val targets = when (_currentSiteIndex.value) {
-                        0 -> homesteadTargets
-                        1 -> fortTargets
-                        2 -> villaTargets
-                        else -> emptyList()
-                    }
-
-                    var maxSimStrength = 0f
-                    var matchedType: MetalType? = null
-
+                    if (strength >= 6f) type = MetalType.MAGNETIC_ANOMALY
+                } else if (_isSweeping.value) {
+                    val targets = simulatedTargets.getOrNull(_currentSiteIndex.value).orEmpty()
+                    var bestStrength = 0f
                     for (target in targets) {
-                        val dx = x - target.x
-                        val dy = y - target.y
-                        val dist = sqrt(dx * dx + dy * dy)
-                        val triggerRadius = 8.5f // Grid cells radius of coil sweep reach
-
-                        if (dist < triggerRadius) {
-                            // Quadratic decay: closer = exponentially stronger
-                            val ratio = (1.0f - dist / triggerRadius).coerceIn(0f, 1f)
-                            val simStrength = (ratio * ratio) * target.baseStrength
-                            
-                            if (simStrength > maxSimStrength) {
-                                maxSimStrength = simStrength
-                                matchedType = target.type
+                        val dx = _sweepX.value - target.x
+                        val dy = _sweepY.value - target.y
+                        val distance = sqrt(dx * dx + dy * dy)
+                        if (distance < 8.5f) {
+                            val ratio = (1f - distance / 8.5f).coerceIn(0f, 1f)
+                            val candidate = ratio * ratio * target.baseStrength
+                            if (candidate > bestStrength) {
+                                bestStrength = candidate
+                                type = target.type
+                                depth = target.depth
                             }
                         }
                     }
-
-                    strength = maxSimStrength
-                    type = matchedType
+                    strength = bestStrength
                 }
 
-                // Update flows (StateFlow is thread-safe)
                 _detectorSignalStrength.value = strength
                 _detectedMetalType.value = type
-
-                // 3. SOUND PING & HAPTIC — must run on Main (ToneGenerator/Vibrator crash off-thread)
+                _detectedDepthCm.value = depth
                 if (strength > 10f) {
-                    val vibeMs = (strength * 0.3f).toLong().coerceAtLeast(10)
-                    val duration = (30 + (strength * 0.8f)).toInt().coerceIn(20, 120)
-                    val doVibe = _vibrationEnabled.value
-                    val doAudio = _audioPingEnabled.value
+                    val duration = (30 + strength * 0.8f).toInt().coerceIn(20, 120)
                     withContext(Dispatchers.Main.immediate) {
-                        if (doVibe) triggerVibe(vibeMs)
-                        if (doAudio) {
-                            try {
-                                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, duration)
-                            } catch (_: Exception) {
-                            }
+                        if (_vibrationEnabled.value) triggerVibe((strength * 0.3f).toLong().coerceAtLeast(10))
+                        if (_audioPingEnabled.value) {
+                            try { toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, duration) } catch (_: RuntimeException) { }
                         }
                     }
-                    val sweepDelay = (350 - (strength * 2.8f)).toLong().coerceIn(40, 400)
-                    delay(sweepDelay)
+                    delay((350 - strength * 2.8f).toLong().coerceIn(60, 400))
                 } else {
-                    delay(200)
+                    delay(150)
                 }
             }
         }
     }
 
-    private fun triggerVibe(ms: Long) {
+    private fun triggerVibe(milliseconds: Long) {
         try {
-            val duration = ms.coerceIn(1L, 200L)
+            val duration = milliseconds.coerceIn(1, 200)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(
-                    VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE),
-                )
+                vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
             } else {
                 @Suppress("DEPRECATION")
                 vibrator.vibrate(duration)
             }
-        } catch (_: Exception) {
-            // Device may refuse vibration mid-gesture
-        }
+        } catch (_: RuntimeException) { }
     }
 
     override fun onCleared() {
-        super.onCleared()
         magnetometerMonitor.stopListening()
-        audioJob?.cancel()
-        try {
-            toneGenerator?.release()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        detectorJob?.cancel()
+        renderJob?.cancel()
+        try { toneGenerator?.release() } catch (_: RuntimeException) { }
+        super.onCleared()
     }
 
     private data class SimulatedTarget(
@@ -508,6 +373,6 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         val y: Float,
         val type: MetalType,
         val baseStrength: Float,
-        val depth: Int
+        val depth: Int,
     )
 }
