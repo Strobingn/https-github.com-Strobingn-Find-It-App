@@ -12,11 +12,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
-import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Map
@@ -58,7 +56,6 @@ import com.example.ui.components.CustomFileLoader
 import com.example.ui.components.LidarControlPanel
 import com.example.ui.components.LidarCanvasMode
 import com.example.ui.components.LidarMapCanvas
-import com.example.ui.components.TargetLoggerPanel
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -66,7 +63,6 @@ private data class AppTab(val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
     AppTab("Terrain", Icons.Default.Map),
-    AppTab("Finds", Icons.Default.Flag),
     AppTab("Import", Icons.Default.UploadFile),
 )
 
@@ -74,7 +70,7 @@ private val tabs = listOf(
 @Composable
 fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
     val selectedTab = rememberSaveable { mutableIntStateOf(0) }
-    val terrainFocusMode = rememberSaveable { mutableStateOf(true) }
+    val terrainFocusMode = rememberSaveable { mutableStateOf(false) }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -114,7 +110,6 @@ fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
                 focusMode = terrainFocusMode.value,
                 onFocusModeChanged = { terrainFocusMode.value = it },
             )
-            1 -> FindsTab(viewModel, padding)
             else -> ImportTab(viewModel, padding) {
                 selectedTab.intValue = 0
                 terrainFocusMode.value = true
@@ -192,49 +187,18 @@ private fun TerrainTab(
                 .testTag("terrain_workspace"),
         )
 
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-            tonalElevation = 6.dp,
-            modifier = Modifier.align(Alignment.TopCenter).padding(14.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.padding(horizontal = 4.dp),
-            ) {
-                IconButton(onClick = { viewModel.rotateSunAzimuth(-45f) }) {
-                    Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = "Rotate light 45 degrees left")
-                }
-                Icon(
-                    Icons.Default.WbSunny,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.rotate(azimuth),
-                )
-                Text(
-                    "${compassLabel(azimuth)} ${azimuth.roundToInt()}°",
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                )
-                IconButton(onClick = { viewModel.rotateSunAzimuth(45f) }) {
-                    Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Rotate light 45 degrees right")
-                }
-                IconButton(onClick = { viewportResetKey.intValue++ }) {
-                    Icon(Icons.Default.CenterFocusStrong, contentDescription = "Fit terrain to screen")
-                }
-                IconButton(onClick = { showControls.value = !showControls.value }) {
-                    Icon(Icons.Default.Tune, contentDescription = "Show terrain controls")
-                }
-                IconButton(onClick = { onFocusModeChanged(!focusMode) }) {
-                    Icon(
-                        if (focusMode) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                        contentDescription = if (focusMode) "Exit full screen" else "Open full screen",
-                    )
-                }
-            }
-        }
-
+        TerrainToolbar(
+            compact = maxWidth < 600.dp,
+            azimuth = azimuth,
+            focusMode = focusMode,
+            controlsVisible = showControls.value,
+            onRotateLeft = { viewModel.rotateSunAzimuth(-45f) },
+            onRotateRight = { viewModel.rotateSunAzimuth(45f) },
+            onFit = { viewportResetKey.intValue++ },
+            onToggleControls = { showControls.value = !showControls.value },
+            onToggleFocusMode = { onFocusModeChanged(!focusMode) },
+            modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+        )
         Surface(
             shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
@@ -354,21 +318,104 @@ private fun TerrainTab(
 }
 
 @Composable
-private fun FindsTab(viewModel: HillshadeViewModel, padding: PaddingValues) {
-    val signals by viewModel.loggedSignals.collectAsStateWithLifecycle()
-    val x by viewModel.sweepX.collectAsStateWithLifecycle()
-    val y by viewModel.sweepY.collectAsStateWithLifecycle()
-    TargetLoggerPanel(
-        loggedSignals = signals,
-        currentSweepX = x,
-        currentSweepY = y,
-        onLogSignal = viewModel::logCurrentSignal,
-        onDeleteSignal = viewModel::deleteLoggedSignal,
-        onUpdateSignal = viewModel::updateLoggedSignal,
-        onClearAll = viewModel::clearLoggedSignals,
-        modifier = Modifier.fillMaxSize().padding(padding),
-    )
+internal fun TerrainToolbar(
+    compact: Boolean,
+    azimuth: Float,
+    focusMode: Boolean,
+    controlsVisible: Boolean,
+    onRotateLeft: () -> Unit,
+    onRotateRight: () -> Unit,
+    onFit: () -> Unit,
+    onToggleControls: () -> Unit,
+    onToggleFocusMode: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        tonalElevation = 6.dp,
+        modifier = modifier.fillMaxWidth().testTag("terrain_toolbar"),
+    ) {
+        if (compact) {
+            Column(Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    IconButton(onClick = onRotateLeft) {
+                        Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = "Rotate light 45 degrees left")
+                    }
+                    Icon(
+                        Icons.Default.WbSunny,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.rotate(azimuth),
+                    )
+                    Text(
+                        "${compassLabel(azimuth)} ${azimuth.roundToInt()}°",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                    IconButton(onClick = onRotateRight) {
+                        Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Rotate light 45 degrees right")
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    TextButton(onClick = onFit) { Text("Fit") }
+                    TextButton(onClick = onToggleControls) {
+                        Text(if (controlsVisible) "Hide controls" else "Controls")
+                    }
+                    TextButton(onClick = onToggleFocusMode) {
+                        Text(if (focusMode) "Exit full screen" else "Full screen")
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                IconButton(onClick = onRotateLeft) {
+                    Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = "Rotate light 45 degrees left")
+                }
+                Icon(
+                    Icons.Default.WbSunny,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.rotate(azimuth),
+                )
+                Text(
+                    "${compassLabel(azimuth)} ${azimuth.roundToInt()}°",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                IconButton(onClick = onRotateRight) {
+                    Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Rotate light 45 degrees right")
+                }
+                IconButton(onClick = onFit) {
+                    Icon(Icons.Default.CenterFocusStrong, contentDescription = "Fit terrain to screen")
+                }
+                IconButton(onClick = onToggleControls) {
+                    Icon(Icons.Default.Tune, contentDescription = if (controlsVisible) "Hide terrain controls" else "Show terrain controls")
+                }
+                IconButton(onClick = onToggleFocusMode) {
+                    Icon(
+                        if (focusMode) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        contentDescription = if (focusMode) "Exit full screen" else "Open full screen",
+                    )
+                }
+            }
+        }
+    }
 }
+
 
 @Composable
 private fun ImportTab(viewModel: HillshadeViewModel, padding: PaddingValues, onImported: () -> Unit) {
