@@ -72,7 +72,7 @@ fun CustomFileLoader(
     var message by remember { mutableStateOf<String?>(null) }
     var isError by remember { mutableStateOf(false) }
     var groundMode by remember { mutableStateOf(GroundSurfaceMode.SOURCE_CLASSIFIED) }
-    var rasterResolution by remember { mutableStateOf(320) }
+    var rasterResolution by remember { mutableStateOf(512) }
     var smoothingRadius by remember { mutableStateOf(0) }
 
     fun importOptions() = LidarImportOptions(
@@ -148,7 +148,7 @@ fun CustomFileLoader(
 
                 Text("Raster detail", style = MaterialTheme.typography.labelLarge)
                 ChoiceRow(
-                    options = listOf(192 to "Overview", 320 to "Balanced", 512 to "Fine"),
+                    options = listOf(256 to "Overview", 512 to "Balanced", 1_024 to "Fine"),
                     selected = rasterResolution,
                     onSelected = { rasterResolution = it },
                 )
@@ -160,7 +160,7 @@ fun CustomFileLoader(
 
                 Text("Ground smoothing", style = MaterialTheme.typography.labelLarge)
                 ChoiceRow(
-                    options = listOf(0 to "None", 1 to "Light", 2 to "Strong"),
+                    options = listOf(0 to "None", 1 to "Light", 2 to "Medium", 4 to "Strong"),
                     selected = smoothingRadius,
                     onSelected = { smoothingRadius = it },
                 )

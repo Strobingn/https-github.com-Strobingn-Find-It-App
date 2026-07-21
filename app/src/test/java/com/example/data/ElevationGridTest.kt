@@ -55,4 +55,18 @@ class ElevationGridTest {
 
         assertNotEquals(disturbance.getPixel(0, 0), disturbance.getPixel(4, 4))
     }
+
+    @Test
+    fun aspectElevationAndCanopyModesExposeDifferentTerrainSignals() {
+        val elevations = FloatArray(25) { index -> (index % 5 + index / 5).toFloat() }
+        val canopy = FloatArray(25).also { it[12] = 8f }
+        val grid = ElevationGrid(5, 5, elevations, canopy, cellSizeMeters = 1f)
+
+        val aspect = grid.renderHillshade(315f, 35f, 0f, palette = 2, visualizationMode = 6)
+        val elevation = grid.renderHillshade(315f, 35f, 0f, palette = 2, visualizationMode = 7)
+        val canopyHeight = grid.renderHillshade(315f, 35f, 0f, palette = 2, visualizationMode = 8)
+
+        assertNotEquals(aspect.getPixel(2, 2), elevation.getPixel(2, 2))
+        assertNotEquals(canopyHeight.getPixel(2, 2), canopyHeight.getPixel(0, 0))
+    }
 }

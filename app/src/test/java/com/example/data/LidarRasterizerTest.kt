@@ -7,6 +7,12 @@ import org.junit.Test
 
 class LidarRasterizerTest {
     @Test
+    fun importOptionsAllowHighResolutionWithoutUnboundedAllocation() {
+        assertEquals(1_024, LidarImportOptions(rasterResolution = 4_096).sanitized().rasterResolution)
+        assertEquals(4, LidarImportOptions(smoothingRadius = 99).sanitized().smoothingRadius)
+    }
+
+    @Test
     fun preservesSourceFootprintAndUsesClassifiedGround() {
         val rasterizer = LidarRasterizer(
             minX = 0.0,

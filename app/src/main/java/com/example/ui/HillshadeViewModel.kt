@@ -249,7 +249,7 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateVegetationFilter(value: Float) { _vegetationFilter.value = value.coerceIn(0f, 1f); scheduleRender() }
     fun updatePalette(value: Int) { _paletteType.value = value.coerceIn(0, 2); scheduleRender() }
     fun updateContrast(value: Float) { _contrast.value = value.coerceIn(1f, 2.5f); scheduleRender() }
-    fun updateVisualizationMode(value: Int) { _visualizationMode.value = value.coerceIn(0, 5); scheduleRender() }
+    fun updateVisualizationMode(value: Int) { _visualizationMode.value = value.coerceIn(0, 8); scheduleRender() }
     fun updateOverlayType(value: Int) { _overlayType.value = value.coerceIn(0, 2); scheduleRender() }
     fun updateOverlayOpacity(value: Float) { _overlayOpacity.value = value.coerceIn(0.1f, 0.9f); scheduleRender() }
     fun updateGridSpacing(value: Float) { _gridSpacing.value = value.coerceIn(0f, 20f) }

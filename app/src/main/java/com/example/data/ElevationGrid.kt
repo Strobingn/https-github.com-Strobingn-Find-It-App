@@ -37,7 +37,8 @@ class ElevationGrid(
      * Render a terrain-analysis bitmap.
      *
      * Modes: 0 single hillshade, 1 multi-directional hillshade, 2 slope, 3 local relief,
-     * 4 curvature, 5 disturbance candidates. Candidate views are screening aids, not proof of
+     * 4 curvature, 5 disturbance candidates, 6 aspect, 7 elevation, and 8 canopy height.
+     * Candidate views are screening aids, not proof of
      * archaeological origin; field verification and source-quality review remain essential.
      */
     fun renderHillshade(
@@ -79,6 +80,7 @@ class ElevationGrid(
         val residualScale = local?.residual?.let(::robustMagnitudeScale) ?: 1f
         val roughnessScale = local?.roughness?.let(::robustMagnitudeScale) ?: 1f
         val curvatureScale = curvature?.let(::robustMagnitudeScale) ?: 1f
+        val canopyScale = robustPositiveScale(canopySpikes)
 
         var minElevation = Float.MAX_VALUE
         var maxElevation = -Float.MAX_VALUE
@@ -101,7 +103,7 @@ class ElevationGrid(
                 val multiShade = multiDirectionalShade(gradient.dx, gradient.dy, azimuth, altitude)
                 val elevationPercent = ((elevations[index] - minElevation) / elevationRange).coerceIn(0f, 1f)
 
-                var color = when (visualizationMode.coerceIn(0, 5)) {
+                var color = when (visualizationMode.coerceIn(0, 8)) {
                     1 -> shadePalette(getPaletteColor(palette, elevationPercent), multiShade, contrastValue)
                     2 -> slopeColor(getPaletteColor(palette, elevationPercent), slopeRadians)
                     3 -> {
@@ -121,6 +123,9 @@ class ElevationGrid(
                             analysisSensitivity.coerceIn(0.4f, 2.5f)).coerceIn(0f, 1f)
                         disturbanceCandidateColor(score, multiShade)
                     }
+                    6 -> aspectColor(gradient.dx, gradient.dy, slopeRadians, multiShade)
+                    7 -> getPaletteColor(palette, elevationPercent)
+                    8 -> canopyHeightColor(canopySpikes[index], canopyScale, multiShade)
                     else -> shadePalette(getPaletteColor(palette, elevationPercent), primaryShade, contrastValue)
                 }
 
@@ -333,6 +338,37 @@ class ElevationGrid(
             else -> blend(Color.rgb(255, 204, 52), Color.rgb(230, 42, 38), (score - 0.7f) / 0.3f)
         }
         return shadePalette(heat, 0.3f + shade * 0.7f, 0.8f)
+    }
+
+    private fun aspectColor(dx: Float, dy: Float, slopeRadians: Float, shade: Float): Int {
+        if (slopeRadians < Math.toRadians(1.0).toFloat()) return Color.rgb(148, 148, 148)
+        val degrees = ((Math.toDegrees(kotlin.math.atan2(dx, -dy).toDouble()).toFloat() + 360f) % 360f)
+        val vivid = Color.HSVToColor(floatArrayOf(degrees, 0.82f, 0.95f))
+        return shadePalette(vivid, 0.35f + shade * 0.65f, 0.72f)
+    }
+
+    private fun canopyHeightColor(heightMeters: Float, scale: Float, shade: Float): Int {
+        val normalized = (heightMeters.coerceAtLeast(0f) / scale).coerceIn(0f, 1f)
+        val base = when {
+            normalized < 0.08f -> Color.rgb(82, 74, 62)
+            normalized < 0.45f -> blend(Color.rgb(82, 74, 62), Color.rgb(46, 139, 87), normalized / 0.45f)
+            else -> blend(Color.rgb(46, 139, 87), Color.rgb(8, 58, 32), (normalized - 0.45f) / 0.55f)
+        }
+        return shadePalette(base, 0.4f + shade * 0.6f, 0.65f)
+    }
+
+    private fun robustPositiveScale(values: FloatArray): Float {
+        var sum = 0.0
+        var maximum = 0f
+        var count = 0
+        for (value in values) {
+            if (!value.isFinite() || value <= 0f) continue
+            sum += value
+            maximum = max(maximum, value)
+            count++
+        }
+        if (count == 0) return 1f
+        return max((sum / count).toFloat() * 3.5f, maximum * 0.15f).coerceAtLeast(0.1f)
     }
 
     private fun getPaletteColor(palette: Int, percent: Float): Int = when (palette) {

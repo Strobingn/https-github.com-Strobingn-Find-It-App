@@ -23,7 +23,7 @@ data class LidarImportOptions(
     val smoothingRadius: Int = 0,
 ) {
     fun sanitized(): LidarImportOptions = copy(
-        rasterResolution = rasterResolution.coerceIn(128, 512),
-        smoothingRadius = smoothingRadius.coerceIn(0, 2),
+        rasterResolution = rasterResolution.coerceIn(128, 1_024),
+        smoothingRadius = smoothingRadius.coerceIn(0, 4),
     )
 }
