@@ -44,17 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.uni
 t.sp
 import com.example.data.NormalizedRasterBounds
-import com.example.ui.theme.DarkBackground
-import com.example.ui.theme.DarkSteelSurface
-import com.example.ui.theme.GoldAmber
-import com.example.ui.theme.Grey200
-import com.example.ui.theme.Grey300
-import com.example.ui.theme.Grey400
-import com.example.ui.theme.Grey800
-import com.example.ui.theme.PrimaryDark
 import com.example.data.TargetSignal
 import com.example.geospatial.GeoSpatialLibrary
-import kotlin.math.min
 
 enum class LidarCanvasMode { SURVEY, EXPLORE }
 
@@ -99,7 +90,7 @@ fun LidarMapCanvas(
         val image = imageBitmap ?: return@LaunchedEffect
         val viewportWidth = viewportSize.width.toFloat().coerceAtLeast(1f)
         val viewportHeight = viewportSize.height.toFloat().coerceAtLeast(1f)
-        val fit = min(viewportWidth / image.width, viewportHeight / image.height)
+        val fit = viewportWidth / image.width
         val displayWidth = image.width * fit * zoom
         val displayHeight = image.height * fit * zoom
         val imageLeft = (viewportWidth - displayWidth) * 0.5f + pan.x
@@ -121,7 +112,7 @@ portHeight - displayHeight) * 0.5f + pan.y
             val viewportHeight = viewportSize.height.toFloat().coerceAtLeast(1f)
             val sourceWidth = imageBitmap?.width?.toFloat()?.coerceAtLeast(1f) ?: viewportWidth
             val sourceHeight = imageBitmap?.height?.toFloat()?.coerceAtLeast(1f) ?: viewportHeight
-            val fit = min(viewportWidth / sourceWidth, viewportHeight / sourceHeight)
+            val fit = viewportWidth / sourceWidth
             val maxPanX = ((sourceWidth * fit * nextZoom - viewportWidth) * 0.5f).coerceAtLeast(0f)
             val maxPanY = ((sourceHeight * fit * nextZoom - viewportHeight) * 0.5f).coerceAtLeast(0f)
             zoom = nextZoom
@@ -135,7 +126,7 @@ portHeight - displayHeight) * 0.5f + pan.y
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(DarkBackground)
+            .background(Color(0xFF1C1D21))
             .shadow(4.dp, RoundedCornerShape(16.dp))
             .testTag("lidar_map_canvas_container"),
     ) {
@@ -149,7 +140,7 @@ portHeight - displayHeight) * 0.5f + pan.y
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val canvasWidth = size.width.toFloat().coerceAtLeast(1f)
                         val canvasHeight = size.height.toFloat().coerceAtLeast(1f)
-                        val fit = min(canvasWidth / bitmap.width, canvasHeight / bitmap.height)
+                        val fit = canvasWidth / bitmap.width
                         val imageWidth = bitmap.width * fit
                         val imageHeight = bitmap.height * fit
                         val imageLeft = (canvasWidth - imageWidth) * 0.5f
@@ -184,7 +175,7 @@ as"),
             ) {
                 val canvasWidth = size.width.coerceAtLeast(1f)
                 val canvasHeight = size.height.coerceAtLeast(1f)
-                val fit = min(canvasWidth / imageBitmap.width, canvasHeight / imageBitmap.height)
+                val fit = canvasWidth / imageBitmap.width
                 val fittedWidth = imageBitmap.width * fit
                 val fittedHeight = imageBitmap.height * fit
                 val displayWidth = fittedWidth * zoom
@@ -205,7 +196,7 @@ as"),
                     for (i in 1 until cols) {
                         val px = imageLeft + (i * gridSpacing / 100f) * displayWidth
                         drawLine(
-                            color = PrimaryDark,
+                            color = Color(0xFF29B6F6),
                             start = Offset(px, imageTop),
                             end = Offset(px, imageTop + displayHeight),
                             strokeWidth = 1f,
@@ -215,7 +206,7 @@ as"),
                     for (i in 1 until rows) {
                         val py = imageTop + (i * gridSpacing / 100f) * displayHeight
                         drawLine(
-                            color = PrimaryDark,
+                            color = Color(0xFF29B6F6),
                             start = Offset(imageLeft, py),
                             end = Offset(imageLeft + displayWidth, py),
                       
@@ -231,7 +222,7 @@ as"),
                     val pinColor = try {
                         Color(sig.metalType.colorHex)
                     } catch (_: Exception) {
-                        GoldAmber
+                        Color(0xFFFFD700)
                     }
                     drawCircle(color = pinColor, radius = 12f, center = Offset(px, py), alpha = 0.5f)
                     drawCircle(color = Color.White, radius = 4f, center = Offset(px, py))
@@ -249,21 +240,21 @@ as"),
                     val coil = Offset(sx, sy)
 
                     drawCircle(
-                        color = GoldAmber,
+                        color = Color(0xFFFFD700),
                         radius = 36f,
                         center = coil,
                         style = Stroke(width = 1.5f),
                         alpha = 0.35f,
                     )
                     drawCircle(
-                        color = GoldAmber,
+                        color = Color(0xFFFFD700),
                         radius = 24f,
                         center = coil,
                         style = Stroke(width = 3.5f),
                         alpha = 0.85f,
                     )
                     drawLine(
-                        color = GoldAmber,
+                        color = Color(0xFFFFD700),
                         start = Offset(sx - 10f, sy),
                         end =
  Offset(sx + 10f, sy),
@@ -271,7 +262,7 @@ as"),
                         alpha = 0.8f,
                     )
                     drawLine(
-                        color = GoldAmber,
+                        color = Color(0xFFFFD700),
                         start = Offset(sx, sy - 10f),
                         end = Offset(sx, sy + 10f),
                         strokeWidth = 2f,
@@ -287,14 +278,14 @@ as"),
                     .align(Alignment.TopStart)
                     .padding(10.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(DarkBackground.copy(alpha = 0.9f))
-                    .border(0.5.dp, Grey800, RoundedCornerShape(6.dp))
+                    .background(Color(0xE60D0E12))
+                    .border(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(6.dp))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Column {
                     Text(
                         text = geoMetadata.siteName.uppercase(),
-                        color = GoldAmber,
+                        color = Color(0xFFFFD700),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -315,9 +306,9 @@ as"),
                     .align(Alignment.BottomCenter)
                     .padding(10.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(DarkBackground.copy(alpha = 0.9f))
+                    .background(Color(0xE60D0E12))
                     .bord
-er(0.5.dp, Grey800, RoundedCornerShape(8.dp))
+er(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
                     .padding(8.dp),
             ) {
                 if (currentLat != null && currentLon != null) {
