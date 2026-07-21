@@ -51,11 +51,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.BuildConfig
 import com.example.data.NormalizedRasterBounds
 import com.example.ui.components.CustomFileLoader
+import com.example.ui.components.GeoreferencedTerrainMap
 import com.example.ui.components.LidarControlPanel
 import com.example.ui.components.LidarCanvasMode
 import com.example.ui.components.LidarMapCanvas
+import com.example.ui.components.shouldUseGeographicMap
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -155,38 +158,58 @@ private fun TerrainTab(
     val zoomLevel = rememberSaveable { mutableStateOf(1f) }
     val showControls = rememberSaveable { mutableStateOf(false) }
     val viewportResetKey = rememberSaveable { mutableIntStateOf(0) }
+    val showGeographicMap = shouldUseGeographicMap(metadata.bounds, BuildConfig.MAPS_API_KEY)
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .padding(if (focusMode) PaddingValues(0.dp) else padding),
     ) {
-        LidarMapCanvas(
-            bitmap = bitmap,
-            isRendering = isRendering,
-            sweepX = sweepX,
-            sweepY = sweepY,
-            loggedSignals = signals,
-            onSweepPositionChanged = viewModel::setSweepPosition,
-            onStopSweeping = {},
-            gridSpacing = grid,
-            geoMetadata = metadata,
-            currentLat = null,
-            currentLon = null,
-            mode = LidarCanvasMode.EXPLORE,
-            viewportResetKey = viewportResetKey.intValue,
-            showSurveyCursor = false,
-            showCoordinateHud = false,
-            onViewportChanged = { bounds, zoom ->
-                visibleBounds.value = bounds
-                zoomLevel.value = zoom
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(if (focusMode) 0.dp else 8.dp)
-                .testTag("terrain_workspace"),
-        )
-
+        val geographicBounds = metadata.bounds
+        if (showGeographicMap && geographicBounds != null) {
+            GeoreferencedTerrainMap(
+                bitmap = bitmap,
+                isRendering = isRendering,
+                bounds = geographicBounds,
+                loggedSignals = signals,
+                gridSpacing = grid,
+                viewportResetKey = viewportResetKey.intValue,
+                onViewportChanged = { bounds, zoom ->
+                    visibleBounds.value = bounds
+                    zoomLevel.value = zoom
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(if (focusMode) 0.dp else 8.dp)
+                    .testTag("terrain_workspace"),
+            )
+        } else {
+            LidarMapCanvas(
+                bitmap = bitmap,
+                isRendering = isRendering,
+                sweepX = sweepX,
+                sweepY = sweepY,
+                loggedSignals = signals,
+                onSweepPositionChanged = viewModel::setSweepPosition,
+                onStopSweeping = {},
+                gridSpacing = grid,
+                geoMetadata = metadata,
+                currentLat = null,
+                currentLon = null,
+                mode = LidarCanvasMode.EXPLORE,
+                viewportResetKey = viewportResetKey.intValue,
+                showSurveyCursor = false,
+                showCoordinateHud = false,
+                onViewportChanged = { bounds, zoom ->
+                    visibleBounds.value = bounds
+                    zoomLevel.value = zoom
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(if (focusMode) 0.dp else 8.dp)
+                    .testTag("terrain_workspace"),
+            )
+        }
         TerrainToolbar(
             compact = maxWidth < 600.dp,
             azimuth = azimuth,
@@ -213,7 +236,7 @@ private fun TerrainTab(
                     fontFamily = FontFamily.Monospace,
                 )
                 Text(
-                    if (showControls.value) "Controls open" else "Pinch to zoom · drag to pan · Tune for analysis",
+                    if (showControls.value) "Controls open" else if (showGeographicMap) "Satellite map · terrain layer · pinch to zoom" else "Pinch to zoom · drag to pan · Tune for analysis",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

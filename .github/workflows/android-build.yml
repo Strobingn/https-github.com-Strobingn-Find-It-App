@@ -46,6 +46,11 @@ jobs:
           fi
           touch .env
 
+      - name: Configure Maps API key
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: printf 'MAPS_API_KEY=%s\n' "${MAPS_API_KEY:-DEFAULT_API_KEY}" > secrets.properties
+
       - name: Ensure Android debug keystore
         run: |
           mkdir -p "$HOME/.android"
