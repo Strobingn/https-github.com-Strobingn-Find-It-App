@@ -81,6 +81,10 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     val autoRefineTerrain = _autoRefineTerrain.asStateFlow()
     private val _autoRefineMinZoom = MutableStateFlow(1.5f)
     val autoRefineMinZoom = _autoRefineMinZoom.asStateFlow()
+    private val _mapBasemapEnabled = MutableStateFlow(true)
+    val mapBasemapEnabled = _mapBasemapEnabled.asStateFlow()
+    private val _mapOverlayOpacity = MutableStateFlow(0.72f)
+    val mapOverlayOpacity = _mapOverlayOpacity.asStateFlow()
     private var terrainSource: TerrainImportSource? = null
     private var overviewTerrain: DemGenerator.TerrainLoadResult? = null
     private var currentSourceBounds = NormalizedRasterBounds.Full
@@ -255,6 +259,16 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun setAutoRefineMinZoom(value: Float) {
         _autoRefineMinZoom.value = value.coerceIn(1.2f, 8f)
+        scheduleSaveSettings()
+    }
+
+    fun setMapBasemapEnabled(enabled: Boolean) {
+        _mapBasemapEnabled.value = enabled
+        scheduleSaveSettings()
+    }
+
+    fun setMapOverlayOpacity(value: Float) {
+        _mapOverlayOpacity.value = value.coerceIn(0.15f, 1f)
         scheduleSaveSettings()
     }
 
@@ -530,6 +544,10 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         _autoRefineMinZoom.value = settingsRepo
             .getFloat(SettingsRepository.Keys.AUTO_REFINE_MIN_ZOOM, 1.5f)
             .coerceIn(1.2f, 8f)
+        _mapBasemapEnabled.value = settingsRepo.getBoolean(SettingsRepository.Keys.MAP_BASEMAP_ENABLED, true)
+        _mapOverlayOpacity.value = settingsRepo
+            .getFloat(SettingsRepository.Keys.MAP_OVERLAY_OPACITY, 0.72f)
+            .coerceIn(0.15f, 1f)
     }
 
     private suspend fun persistSettings() {
@@ -551,6 +569,8 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
         settingsRepo.saveFloat(SettingsRepository.Keys.SWEEP_Y, _sweepY.value)
         settingsRepo.saveBoolean(SettingsRepository.Keys.AUTO_REFINE_TERRAIN, _autoRefineTerrain.value)
         settingsRepo.saveFloat(SettingsRepository.Keys.AUTO_REFINE_MIN_ZOOM, _autoRefineMinZoom.value)
+        settingsRepo.saveBoolean(SettingsRepository.Keys.MAP_BASEMAP_ENABLED, _mapBasemapEnabled.value)
+        settingsRepo.saveFloat(SettingsRepository.Keys.MAP_OVERLAY_OPACITY, _mapOverlayOpacity.value)
     }
 
     override fun onCleared() {

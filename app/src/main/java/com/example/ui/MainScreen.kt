@@ -66,6 +66,7 @@ import com.example.ui.components.GoogleMapsPanel
 import com.example.ui.components.LidarControlPanel
 import com.example.ui.components.LidarCanvasMode
 import com.example.ui.components.LidarMapCanvas
+import com.example.ui.components.TerrainMapOverlay
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -184,10 +185,13 @@ private fun TerrainTab(
     val isDetailed by viewModel.isDetailedTerrain.collectAsStateWithLifecycle()
     val detailMessage by viewModel.terrainDetailMessage.collectAsStateWithLifecycle()
     val autoRefine by viewModel.autoRefineTerrain.collectAsStateWithLifecycle()
+    val mapBasemap by viewModel.mapBasemapEnabled.collectAsStateWithLifecycle()
+    val mapOverlayOpacity by viewModel.mapOverlayOpacity.collectAsStateWithLifecycle()
     val visibleBounds = remember { mutableStateOf(NormalizedRasterBounds.Full) }
     val zoomLevel = rememberSaveable { mutableStateOf(1f) }
     val showControls = rememberSaveable { mutableStateOf(false) }
     val viewportResetKey = rememberSaveable { mutableIntStateOf(0) }
+    val useMapOverlay = mapBasemap && metadata.isGeoreferenced
 
     // Always honor Scaffold safe-drawing padding (status + nav bars), even in focus mode.
     BoxWithConstraints(
@@ -195,34 +199,52 @@ private fun TerrainTab(
             .fillMaxSize()
             .padding(padding),
     ) {
-        LidarMapCanvas(
-            bitmap = bitmap,
-            isRendering = isRendering,
-            sweepX = sweepX,
-            sweepY = sweepY,
-            loggedSignals = signals,
-            onSweepPositionChanged = viewModel::setSweepPosition,
-            onStopSweeping = {},
-            gridSpacing = grid,
-            geoMetadata = metadata,
-            currentLat = null,
-            currentLon = null,
-            mode = LidarCanvasMode.EXPLORE,
-            viewportResetKey = viewportResetKey.intValue,
-            showSurveyCursor = false,
-            showCoordinateHud = false,
-            contentBounds = remember(elevationGrid) { elevationGrid.validContentBounds() },
-            onViewportChanged = { bounds, zoom ->
-                visibleBounds.value = bounds
-                zoomLevel.value = zoom
-                // Debounced auto re-rasterize of LAZ/LAS/etc. for this viewport.
-                viewModel.onExploreViewportChanged(bounds, zoom)
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(if (focusMode) 4.dp else 8.dp)
-                .testTag("terrain_workspace"),
-        )
+        if (useMapOverlay) {
+            TerrainMapOverlay(
+                bitmap = bitmap,
+                isRendering = isRendering,
+                metadata = metadata,
+                overlayOpacity = mapOverlayOpacity,
+                onOverlayOpacityChanged = viewModel::setMapOverlayOpacity,
+                onViewportChanged = { bounds, zoom ->
+                    visibleBounds.value = bounds
+                    zoomLevel.value = zoom
+                    viewModel.onExploreViewportChanged(bounds, zoom)
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(if (focusMode) 4.dp else 8.dp)
+                    .testTag("terrain_workspace"),
+            )
+        } else {
+            LidarMapCanvas(
+                bitmap = bitmap,
+                isRendering = isRendering,
+                sweepX = sweepX,
+                sweepY = sweepY,
+                loggedSignals = signals,
+                onSweepPositionChanged = viewModel::setSweepPosition,
+                onStopSweeping = {},
+                gridSpacing = grid,
+                geoMetadata = metadata,
+                currentLat = null,
+                currentLon = null,
+                mode = LidarCanvasMode.EXPLORE,
+                viewportResetKey = viewportResetKey.intValue,
+                showSurveyCursor = false,
+                showCoordinateHud = false,
+                contentBounds = remember(elevationGrid) { elevationGrid.validContentBounds() },
+                onViewportChanged = { bounds, zoom ->
+                    visibleBounds.value = bounds
+                    zoomLevel.value = zoom
+                    viewModel.onExploreViewportChanged(bounds, zoom)
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(if (focusMode) 4.dp else 8.dp)
+                    .testTag("terrain_workspace"),
+            )
+        }
 
         Surface(
             shape = RoundedCornerShape(14.dp),
@@ -251,6 +273,19 @@ private fun TerrainTab(
                 )
                 IconButton(onClick = { viewModel.rotateSunAzimuth(45f) }) {
                     Icon(Icons.Default.RotateRight, contentDescription = "Rotate light 45 degrees right")
+                }
+                IconButton(
+                    onClick = { viewModel.setMapBasemapEnabled(!mapBasemap) },
+                ) {
+                    Icon(
+                        Icons.Default.Public,
+                        contentDescription = if (mapBasemap) "Disable map basemap" else "Enable map basemap",
+                        tint = if (useMapOverlay) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
                 }
                 IconButton(onClick = { viewportResetKey.intValue++ }) {
                     Icon(Icons.Default.CenterFocusStrong, contentDescription = "Fit terrain to screen")

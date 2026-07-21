@@ -27,6 +27,10 @@ class SettingsRepository(private val settingDao: SettingDao) {
         const val AUTO_REFINE_TERRAIN = "auto_refine_terrain"
         /** Minimum map zoom before auto detail fires. */
         const val AUTO_REFINE_MIN_ZOOM = "auto_refine_min_zoom"
+        /** Terrain view uses Google Maps basemap + hillshade ground overlay. */
+        const val MAP_BASEMAP_ENABLED = "map_basemap_enabled"
+        /** Hillshade opacity on map basemap (0.15–1). */
+        const val MAP_OVERLAY_OPACITY = "map_overlay_opacity"
     }
 
     suspend fun saveString(key: String, value: String) {
