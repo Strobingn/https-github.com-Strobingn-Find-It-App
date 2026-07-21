@@ -251,7 +251,8 @@ Terrain(result: DemGenerator.TerrainLoadResult) {
         val overview = overviewTerrain ?: return
         currentSourceBounds = NormalizedRasterBounds.Full
         _isDetailedTerrain.value = false
-        _terrainDetailMessage.value = "Showing the complete point-cloud footprint."
+        _terrainDetailMessage.value =
+            "Complete point-cloud footprint. Dark gaps have no returns — zoom a strip, then Load detail."
         applyCustomTerrain(overview)
     }
 
