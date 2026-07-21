@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.RotateLeft
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
@@ -54,8 +55,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.NormalizedRasterBounds
+import com.example.data.import.SurveyImportResult
 import com.example.ui.components.CustomFileLoader
 import com.example.ui.components.LidarControlPanel
+import com.example.ui.components.SurveyImportPanel
 import com.example.ui.components.LidarCanvasMode
 import com.example.ui.components.LidarMapCanvas
 import com.example.ui.components.TargetLoggerPanel
@@ -67,6 +70,7 @@ private data class AppTab(val label: String, val icon: ImageVector)
 private val tabs = listOf(
     AppTab("Terrain", Icons.Default.Map),
     AppTab("Finds", Icons.Default.Flag),
+    AppTab("Survey", Icons.Default.PinDrop),
     AppTab("Import", Icons.Default.UploadFile),
 )
 
@@ -115,6 +119,7 @@ fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
                 onFocusModeChanged = { terrainFocusMode.value = it },
             )
             1 -> FindsTab(viewModel, padding)
+            2 -> SurveyTab(viewModel, padding)
             else -> ImportTab(viewModel, padding) {
                 selectedTab.intValue = 0
                 terrainFocusMode.value = true
@@ -368,6 +373,27 @@ private fun FindsTab(viewModel: HillshadeViewModel, padding: PaddingValues) {
         onClearAll = viewModel::clearLoggedSignals,
         modifier = Modifier.fillMaxSize().padding(padding),
     )
+}
+
+@Composable
+private fun SurveyTab(viewModel: HillshadeViewModel, padding: PaddingValues) {
+    val importedSurvey = remember { mutableStateOf<SurveyImportResult?>(null) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SurveyImportPanel(
+            onSurveyImported = { result ->
+                importedSurvey.value = result
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        
+        // TODO: Display imported survey data
+    }
 }
 
 @Composable
