@@ -422,9 +422,10 @@ object KmlParser {
     private fun parseCoordinates(coords: String): List<SurveyPoint> {
         val result = mutableListOf<SurveyPoint>()
         val lines = coords.split('\n')
+        val whitespaceRegex = Regex("\\s+")
         
         for (line in lines) {
-            val parts = line.trim().split(',', '\s+'.toRegex())
+            val parts = line.trim().split(',', whitespaceRegex)
             if (parts.size >= 2) {
                 try {
                     val lon = parts[0].toDouble()
