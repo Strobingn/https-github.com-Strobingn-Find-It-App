@@ -1,5 +1,4 @@
 package com.example.ui.components
-
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -42,14 +41,11 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.uni
-
 t.sp
 import com.example.data.NormalizedRasterBounds
 import com.example.data.TargetSignal
 import com.example.geospatial.GeoSpatialLibrary
-
 enum class LidarCanvasMode { SURVEY, EXPLORE }
-
 @Composable
 fun LidarMapCanvas(
     bitmap: Bitmap?,
@@ -81,12 +77,10 @@ fun LidarMapCanvas(
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
-
     LaunchedEffect(viewportResetKey, mode, bitmap) {
         zoom = 1f
         pan = Offset.Zero
     }
-
     LaunchedEffect(zoom, pan, viewportSize, imageBitmap) {
         val image = imageBitmap ?: return@LaunchedEffect
         val viewportWidth = viewportSize.width.toFloat().coerceAtLeast(1f)
@@ -97,8 +91,7 @@ fun LidarMapCanvas(
         val imageLeft = (viewportWidth - displayWidth) * 0.5f + pan.x
         val imageTop = (view
 portHeight - displayHeight) * 0.5f + pan.y
-        val bo
-unds = NormalizedRasterBounds(
+        val bounds = NormalizedRasterBounds(
             left = ((-imageLeft) / displayWidth).toDouble().coerceIn(0.0, 1.0),
             top = ((-imageTop) / displayHeight).toDouble().coerceIn(0.0, 1.0),
             right = ((viewportWidth - imageLeft) / displayWidth).toDouble().coerceIn(0.0, 1.0),
@@ -106,7 +99,6 @@ unds = NormalizedRasterBounds(
         ).sanitized()
         onViewportChanged(bounds, zoom)
     }
-
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         if (mode == LidarCanvasMode.EXPLORE) {
             val nextZoom = (zoom * zoomChange).coerceIn(1f, 32f)
@@ -124,7 +116,6 @@ unds = NormalizedRasterBounds(
             )
         }
     }
-
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -137,8 +128,7 @@ unds = NormalizedRasterBounds(
                 Modifier.transformable(transformState)
    
          } else {
-                Modifier.pointerInput(onSweepPositionChanged, onStopSweepi
-ng, bitmap) {
+                Modifier.pointerInput(onSweepPositionChanged, onStopSweeping, bitmap) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val canvasWidth = size.width.toFloat().coerceAtLeast(1f)
@@ -173,11 +163,11 @@ ng, bitmap) {
                     .fillMaxSize()
                     .onSizeChanged { viewportSize = it }
                     .then(interactionModifier)
-                    .testTag("lidar_canvas"),
+                    .testTag("lidar_canv
+as"),
             ) {
                 val canvasWidth = size.width.coerceAtLeast(1f)
-                val canvasHeight = size.h
-eight.coerceAtLeast(1f)
+                val canvasHeight = size.height.coerceAtLeast(1f)
                 val fit = canvasWidth / imageBitmap.width
                 val fittedWidth = imageBitmap.width * fit
                 val fittedHeight = imageBitmap.height * fit
@@ -185,13 +175,11 @@ eight.coerceAtLeast(1f)
                 val displayHeight = fittedHeight * zoom
                 val imageLeft = (canvasWidth - displayWidth) * 0.5f + pan.x
                 val imageTop = (canvasHeight - displayHeight) * 0.5f + pan.y
-
                 drawImage(
                     image = imageBitmap,
                     dstOffset = IntOffset(imageLeft.toInt(), imageTop.toInt()),
                     dstSize = IntSize(displayWidth.toInt(), displayHeight.toInt()),
                 )
-
                 // Search grid (avoid huge loops if spacing tiny)
                 if (gridSpacing >= 1f) {
                     val cols = (100f / gridSpacing).toInt().coerceIn(1, 50)
@@ -218,9 +206,7 @@ eight.coerceAtLeast(1f)
                         )
                     }
                 }
-
-                for (sig in log
-gedSignals) {
+                for (sig in loggedSignals) {
                     val px = imageLeft + (sig.gridX.coerceIn(0f, 100f) / 100f) * displayWidth
                     val py = imageTop + (sig.gridY.coerceIn(0f, 100f) / 100f) * displayHeight
                     val pinColor = try {
@@ -237,12 +223,10 @@ gedSignals) {
                         style = Stroke(width = 2f),
                     )
                 }
-
                 if (showSurveyCursor) {
                     val sx = imageLeft + (sweepX.coerceIn(0f, 100f) / 100f) * displayWidth
                     val sy = imageTop + (sweepY.coerceIn(0f, 100f) / 100f) * displayHeight
                     val coil = Offset(sx, sy)
-
                     drawCircle(
                         color = Color(0xFFFFD700),
                         radius = 36f,
@@ -266,8 +250,7 @@ gedSignals) {
                         alpha = 0.8f,
                     )
                     drawLine(
-         
-               color = Color(0xFFFFD700),
+                        color = Color(0xFFFFD700),
                         start = Offset(sx, sy - 10f),
                         end = Offset(sx, sy + 10f),
                         strokeWidth = 2f,
@@ -276,7 +259,6 @@ gedSignals) {
                     drawCircle(color = Color.White, radius = 3f, center = coil)
                 }
             }
-
             // --- GEOSPATIAL GIS HUD ---
             Box(
                 modifier = Modifier
@@ -304,7 +286,6 @@ gedSignals) {
                     )
                 }
             }
-
             if (showCoordinateHud) Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -312,11 +293,11 @@ gedSignals) {
                     .padding(10.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xE60D0E12))
-                    .border(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
+                    .bord
+er(0.5.dp, Color(0xFF2C2E35), RoundedCornerShape(8.dp))
                     .padding(8.dp),
             ) {
-                if (currentLat != null && currentLon !=
- null) {
+                if (currentLat != null && currentLon != null) {
                     val utm = runCatching {
                         GeoSpatialLibrary.geographicToUtm(currentLat, currentLon)
                     }.getOrNull()
@@ -357,15 +338,13 @@ gedSignals) {
                 )
             }
         }
-
         if (isRendering) {
          
    Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.4f)),
-                co
-ntentAlignment = Alignment.Center,
+                contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
