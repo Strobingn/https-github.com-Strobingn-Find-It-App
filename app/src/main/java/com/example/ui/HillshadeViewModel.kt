@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -8,12 +9,12 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.DemGenerator
 import com.example.data.DetectionSource
 import com.example.data.ElevationGrid
+import com.example.data.LidarImportOptions
 import com.example.data.MetalType
 import com.example.data.NormalizedRasterBounds
 import com.example.data.TerrainImportSource
 import com.example.data.TargetSignal
 import com.example.data.local.AppDatabase
-import com.example.data.local.SettingsRepository
 import com.example.data.local.toDomain
 import com.example.data.local.toEntity
 import com.example.geospatial.GeoSpatialLibrary
@@ -33,7 +34,7 @@ import kotlinx.coroutines.withContext
 
 class HillshadeViewModel(application: Application) : AndroidViewModel(application) {
     private val signalDao = AppDatabase.get(application).targetSignalDao()
-    private val settingsRepo = SettingsRepository(AppDatabase.get(application).settingDao())
+    private val prefs = application.getSharedPreferences("find_it_settings", Context.MODE_PRIVATE)
 
     private val _currentSiteIndex = MutableStateFlow(0)
     val currentSiteIndex: StateFlow<Int> = _currentSiteIndex.asStateFlow()
@@ -41,32 +42,31 @@ class HillshadeViewModel(application: Application) : AndroidViewModel(applicatio
     val elevationGrid: StateFlow<ElevationGrid> = _elevationGrid.asStateFlow()
     private var customGrid: ElevationGrid? = null
 
-    private val _sunAzimuth = MutableStateFlow(315f)
+    private val _sunAzimuth = MutableStateFlow(prefs.getFloat("sunAzimuth", 315f))
     val sunAzimuth = _sunAzimuth.asStateFlow()
-    private val _sunAltitude = MutableStateFlow(35f)
+    private val _sunAltitude = MutableStateFlow(prefs.getFloat("sunAltitude", 45f))
     val sunAltitude = _sunAltitude.asStateFlow()
-    private val _vegetationFilter = MutableStateFlow(0.8f)
+    private val _vegetationFilter = MutableStateFlow(prefs.getFloat("vegetationFilter", 0.8f))
     val vegetationFilter = _vegetationFilter.asStateFlow()
-    p
-rivate val _paletteType = MutableStateFlow(1)
+    private val _paletteType = MutableStateFlow(prefs.getInt("paletteType", 1))
     val paletteType = _paletteType.asStateFlow()
-    private val _contrast = MutableStateFlow(1.5f)
+    private val _contrast = MutableStateFlow(prefs.getFloat("contrast", 1.65f))
     val contrast = _contrast.asStateFlow()
-    private val _visualizationMode = MutableStateFlow(0)
+    private val _visualizationMode = MutableStateFlow(prefs.getInt("visualizationMode", 0))
     val visualizationMode = _visualizationMode.asStateFlow()
-    private val _overlayType = MutableStateFlow(0)
+    private val _overlayType = MutableStateFlow(prefs.getInt("overlayType", 0))
     val overlayType = _overlayType.asStateFlow()
-    private val _overlayOpacity = MutableStateFlow(0.4f)
+    private val _overlayOpacity = MutableStateFlow(prefs.getFloat("overlayOpacity", 0.4f))
     val overlayOpacity = _overlayOpacity.asStateFlow()
-    private val _gridSpacing = MutableStateFlow(0f)
+    private val _gridSpacing = MutableStateFlow(prefs.getFloat("gridSpacing", 0f))
     val gridSpacing = _gridSpacing.asStateFlow()
-    private val _zScale = MutableStateFlow(1f)
+    private val _zScale = MutableStateFlow(prefs.getFloat("zScale", 1.4f))
     val zScale = _zScale.asStateFlow()
-    private val _featureScaleMeters = MutableStateFlow(6f)
+    private val _featureScaleMeters = MutableStateFlow(prefs.getFloat("featureScaleMeters", 6f))
     val featureScaleMeters = _featureScaleMeters.asStateFlow()
-    private val _analysisSensitivity = MutableStateFlow(1.2f)
+    private val _analysisSensitivity = MutableStateFlow(prefs.getFloat("analysisSensitivity", 1.2f))
     val analysisSensitivity = _analysisSensitivity.asStateFlow()
-    private val _contourIntervalMeters = MutableStateFlow(0f)
+    private val _contourIntervalMeters = MutableStateFlow(prefs.getFloat("contourIntervalMeters", 0f))
     val contourIntervalMeters = _contourIntervalMeters.asStateFlow()
     private val _activeTerrainSummary = MutableStateFlow("Built-in demonstration terrain")
     val activeTerrainSummary = _activeTerrainSummary.asStateFlow()
@@ -82,8 +82,13 @@ rivate val _paletteType = MutableStateFlow(1)
     private var overviewTerrain: DemGenerator.TerrainLoadResult? = null
     private var currentSourceBounds = NormalizedRasterBounds.Full
 
-    private val _hillshadeBitmap = MutableStateFlow<Bitm
-ap?>(null)
+    // Last imported file (survives process death)
+    private val _lastImportUri = MutableStateFlow(prefs.getString("lastImportUri", null))
+    val lastImportUri: StateFlow<String?> = _lastImportUri.asStateFlow()
+    private val _lastImportDisplayName = MutableStateFlow(prefs.getString("lastImportDisplayName", null))
+    val lastImportDisplayName: StateFlow<String?> = _lastImportDisplayName.asStateFlow()
+
+    private val _hillshadeBitmap = MutableStateFlow<Bitmap?>(null)
     val hillshadeBitmap = _hillshadeBitmap.asStateFlow()
     private val _isRendering = MutableStateFlow(false)
     val isRendering = _isRendering.asStateFlow()
@@ -106,9 +111,7 @@ ap?>(null)
     private val _currentLon = MutableStateFlow<Double?>(null)
     val currentLon: StateFlow<Double?> = _currentLon.asStateFlow()
 
-
     init {
-        loadSettings()
         updateCoordinates()
         scheduleRender(immediate = true)
         viewModelScope.launch {
@@ -118,9 +121,35 @@ ap?>(null)
         }
     }
 
+    private fun persistSettings() {
+        prefs.edit()
+            .putFloat("sunAzimuth", _sunAzimuth.value)
+            .putFloat("sunAltitude", _sunAltitude.value)
+            .putFloat("vegetationFilter", _vegetationFilter.value)
+            .putInt("paletteType", _paletteType.value)
+            .putFloat("contrast", _contrast.value)
+            .putInt("visualizationMode", _visualizationMode.value)
+            .putInt("overlayType", _overlayType.value)
+            .putFloat("overlayOpacity", _overlayOpacity.value)
+            .putFloat("gridSpacing", _gridSpacing.value)
+            .putFloat("zScale", _zScale.value)
+            .putFloat("featureScaleMeters", _featureScaleMeters.value)
+            .putFloat("analysisSensitivity", _analysisSensitivity.value)
+            .putFloat("contourIntervalMeters", _contourIntervalMeters.value)
+            .apply()
+    }
+
+    private fun persistLastImport(uri: String?, displayName: String?) {
+        prefs.edit()
+            .putString("lastImportUri", uri)
+            .putString("lastImportDisplayName", displayName)
+            .apply()
+        _lastImportUri.value = uri
+        _lastImportDisplayName.value = displayName
+    }
+
     private fun scheduleRender(immediate: Boolean = false) {
         val generation = ++renderGeneration
-        saveSettings()
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             if (!immediate) delay(80)
@@ -133,8 +162,7 @@ ap?>(null)
                             sunAzimuth = _sunAzimuth.value,
                             sunAltitude = _sunAltitude.value,
                             vegetationFilter = _vegetationFilter.value,
-                
-            palette = _paletteType.value,
+                            palette = _paletteType.value,
                             contrast = _contrast.value,
                             visualizationMode = _visualizationMode.value,
                             overlayType = _overlayType.value,
@@ -179,33 +207,36 @@ ap?>(null)
         _canRefineTerrain.value = source != null
         _isDetailedTerrain.value = false
         _terrainDetailMessage.value = null
+        if (source != null) {
+            persistLastImport(source.uri, source.displayName)
+        }
         applyCustomTerrain(result)
     }
 
-    private fun applyCustom
-Terrain(result: DemGenerator.TerrainLoadResult) {
+    private fun applyCustomTerrain(result: DemGenerator.TerrainLoadResult) {
         val grid = result.grid
         customGrid = result.grid
         _elevationGrid.value = result.grid
         _currentSiteIndex.value = 3
         _activeGeoMetadata.value = result.geoMetadata ?: GeoSpatialLibrary.localGrid(
-            name = "Custom imported layer",
+            name = "Your imported terrain",
             columns = grid.width,
             rows = grid.height,
             resolutionMeters = grid.cellSizeMeters.toDouble(),
         )
         _activeTerrainSummary.value = result.summary
-        _vegetationFilter.value = if (result.isBareEarth) 1f else 0f
-        _visualizationMode.value = if (result.isBareEarth) 3 else 1
-        _contrast.value = 1.85f
-        _paletteType.value = 0
-        _sunAltitude.value = 28f
+        _vegetationFilter.value = if (result.isBareEarth) 1f else 0.15f
+        // Human-friendly brighter defaults so the map is not a black void
+        _visualizationMode.value = 1
+        _contrast.value = 1.9f
+        _paletteType.value = 1
+        _sunAltitude.value = 48f
         _sunAzimuth.value = 315f
-        _zScale.value = 2f
+        _zScale.value = 1.8f
+        persistSettings()
         updateCoordinates()
         scheduleRender(immediate = true)
     }
-
 
     fun refineTerrain(viewport: NormalizedRasterBounds) {
         val source = terrainSource ?: return
@@ -214,11 +245,11 @@ Terrain(result: DemGenerator.TerrainLoadResult) {
         val widthFraction = absoluteBounds.right - absoluteBounds.left
         val heightFraction = absoluteBounds.bottom - absoluteBounds.top
         if (widthFraction >= 0.98 && heightFraction >= 0.98) {
-            _terrainDetailMessage.value = "Zoom farther in before loading detail."
+            _terrainDetailMessage.value = "Zoom in a bit more first, then load detail."
             return
         }
         _isRefiningTerrain.value = true
-        _terrainDetailMessage.value = "Reading original returns for this viewport…"
+        _terrainDetailMessage.value = "Loading higher detail for this area…"
         viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
                 getApplication<Application>().contentResolver.openInputStream(Uri.parse(source.uri))?.buffered()?.use { input ->
@@ -226,8 +257,7 @@ Terrain(result: DemGenerator.TerrainLoadResult) {
                         fileName = source.displayName,
                         inputStream = input,
                         options = source.options.copy(
-                  
-          rasterResolution = 1_024,
+                            rasterResolution = 1_024,
                             focusBounds = absoluteBounds,
                         ),
                     )
@@ -236,11 +266,11 @@ Terrain(result: DemGenerator.TerrainLoadResult) {
             withContext(Dispatchers.Main.immediate) {
                 _isRefiningTerrain.value = false
                 if (result == null) {
-                    _terrainDetailMessage.value = "Could not load detail from the original LAZ/LAS document."
+                    _terrainDetailMessage.value = "Could not load extra detail from the original file."
                 } else {
                     currentSourceBounds = absoluteBounds
                     _isDetailedTerrain.value = true
-                    _terrainDetailMessage.value = "Detailed viewport loaded from the original point cloud."
+                    _terrainDetailMessage.value = "Higher detail loaded for this area."
                     applyCustomTerrain(result)
                 }
             }
@@ -251,7 +281,7 @@ Terrain(result: DemGenerator.TerrainLoadResult) {
         val overview = overviewTerrain ?: return
         currentSourceBounds = NormalizedRasterBounds.Full
         _isDetailedTerrain.value = false
-        _terrainDetailMessage.value = "Showing the complete point-cloud footprint."
+        _terrainDetailMessage.value = "Showing the full survey area."
         applyCustomTerrain(overview)
     }
 
@@ -267,33 +297,72 @@ Terrain(result: DemGenerator.TerrainLoadResult) {
 
     fun updateSunAzimuth(value: Float) {
         _sunAzimuth.value = value.coerceIn(0f, 360f)
+        persistSettings()
         scheduleRender()
     }
     fun rotateSunAzimuth(deltaDegrees: Float) {
         val value = _sunAzimuth.value + deltaDegrees
         _sunAzimuth.value = ((value % 360f) + 360f) % 360f
+        persistSettings()
         scheduleRender()
     }
-    fun updateSunAltitude(value: Float) { _sunAltitude.value = value.coerceIn(5f, 85f); scheduleRender() }
-    fun updateVegetationFilter(value: Float) { _vegetationFilter.value = value.coerceIn(0f, 1f); scheduleRender() }
-    fun updatePalette(value: Int) { _paletteType.value = value.coerceIn(0, 2); scheduleR
-ender() }
-    fun updateContrast(value: Float) { _contrast.value = value.coerceIn(1f, 2.5f); scheduleRender() }
-    fun updateVisualizationMode(value: Int) { _visualizationMode.value = value.coerceIn(0, 8); scheduleRender() }
-    fun updateOverlayType(value: Int) { _overlayType.value = value.coerceIn(0, 2); scheduleRender() }
-    fun updateOverlayOpacity(value: Float) { _overlayOpacity.value = value.coerceIn(0.1f, 0.9f); scheduleRender() }
-    fun updateGridSpacing(value: Float) { _gridSpacing.value = value.coerceIn(0f, 20f) }
-    fun updateZScale(value: Float) { _zScale.value = value.coerceIn(0.5f, 4f); scheduleRender() }
+    fun updateSunAltitude(value: Float) {
+        _sunAltitude.value = value.coerceIn(5f, 85f)
+        persistSettings()
+        scheduleRender()
+    }
+    fun updateVegetationFilter(value: Float) {
+        _vegetationFilter.value = value.coerceIn(0f, 1f)
+        persistSettings()
+        scheduleRender()
+    }
+    fun updatePalette(value: Int) {
+        _paletteType.value = value.coerceIn(0, 2)
+        persistSettings()
+        scheduleRender()
+    }
+    fun updateContrast(value: Float) {
+        _contrast.value = value.coerceIn(1f, 2.5f)
+        persistSettings()
+        scheduleRender()
+    }
+    fun updateVisualizationMode(value: Int) {
+        _visualizationMode.value = value.coerceIn(0, 8)
+        persistSettings()
+        scheduleRender()
+    }
+    fun updateOverlayType(value: Int) {
+        _overlayType.value = value.coerceIn(0, 2)
+        persistSettings()
+        scheduleRender()
+    }
+    fun updateOverlayOpacity(value: Float) {
+        _overlayOpacity.value = value.coerceIn(0.1f, 0.9f)
+        persistSettings()
+        scheduleRender()
+    }
+    fun updateGridSpacing(value: Float) {
+        _gridSpacing.value = value.coerceIn(0f, 20f)
+        persistSettings()
+    }
+    fun updateZScale(value: Float) {
+        _zScale.value = value.coerceIn(0.5f, 4f)
+        persistSettings()
+        scheduleRender()
+    }
     fun updateFeatureScale(value: Float) {
         _featureScaleMeters.value = value.coerceIn(1f, 40f)
+        persistSettings()
         scheduleRender()
     }
     fun updateAnalysisSensitivity(value: Float) {
         _analysisSensitivity.value = value.coerceIn(0.4f, 2.5f)
+        persistSettings()
         scheduleRender()
     }
     fun updateContourInterval(value: Float) {
         _contourIntervalMeters.value = value.coerceIn(0f, 5f)
+        persistSettings()
         scheduleRender()
     }
 
@@ -313,7 +382,6 @@ ender() }
         _currentLon.value = coordinate?.second
     }
 
-
     fun logCurrentSignal() {
         val signal = TargetSignal(
             gridX = _sweepX.value,
@@ -328,8 +396,7 @@ ender() }
         viewModelScope.launch { signalDao.upsert(signal.toEntity()) }
     }
 
-    fun updateL
-oggedSignal(signal: TargetSignal) {
+    fun updateLoggedSignal(signal: TargetSignal) {
         viewModelScope.launch { signalDao.upsert(signal.toEntity()) }
     }
 
@@ -341,54 +408,8 @@ oggedSignal(signal: TargetSignal) {
         viewModelScope.launch { signalDao.deleteAll() }
     }
 
-
-    
-
-    private fun loadSettings() {
-        viewModelScope.launch {
-            _sunAzimuth.value = settingsRepo.getFloat(SettingsRepository.Keys.SUN_AZIMUTH, 315f)
-            _sunAltitude.value = settingsRepo.getFloat(SettingsRepository.Keys.SUN_ALTITUDE, 35f)
-            _vegetationFilter.value = settingsRepo.getFloat(SettingsRepository.Keys.VEGETATION_FILTER, 0.8f)
-            _paletteType.value = settingsRepo.getInt(SettingsRepository.Keys.PALETTE_TYPE, 1)
-            _contrast.value = settingsRepo.getFloat(SettingsRepository.Keys.CONTRAST, 1.5f)
-            _visualizationMode.value = settingsRepo.getInt(SettingsRepository.Keys.VISUALIZATION_MODE, 0)
-            _overlayType.value = settingsRepo.getInt(SettingsRepository.Keys.OVERLAY_TYPE, 0)
-            _overlayOpacity.value = settingsRepo.getFloat(SettingsRepository.Keys.OVERLAY_OPACITY, 0.4f)
-            _gridSpacing.value = settingsRepo.getFloat(SettingsRepository.Keys.GRID_SPACING, 0f)
-            _zScale.value = settingsRepo.getFloat(SettingsRepository.Keys.Z_SCALE, 1f)
-            _featureScaleMeters.value = settingsRepo.getFloat(SettingsRepository.Keys.FEATURE_SCALE_METERS, 6f)
-            _analysisSensitivity.value = settingsRepo.getFloat(SettingsRepository.Keys.ANALYSIS_SENSITIVITY, 1.2f)
-            _contourIntervalMeters.value = settingsRepo.getFloat(SettingsRepository.Keys.CONTOUR_INTERVAL_METERS, 0f)
-            _currentSiteIndex.value = settingsRepo.getInt(SettingsRepository.Keys.CURRENT_SITE_INDEX, 0)
-            _sweepX.value = settingsRepo.getFloat(SettingsRepository.Keys.SWEEP_X, 50f)
-            _sweepY.value = settingsRepo.getFloat(SettingsRepository.Keys.SWEEP_Y, 50f)
-        }
-    }
-
-    private fun saveSettings() {
-        viewModelScope.launch {
-            settingsRepo.saveFloat(SettingsRepository.Keys.SUN_AZIMUTH, _sunAzimuth.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.SUN_ALTITUDE, _sunAltitude.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.VEGETATION_FILTER, _vegetationFilter.value)
-            settingsRepo.saveInt(SettingsRepository.Keys.PALETTE_TYPE, _paletteType.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.CONTRAST, _contrast.value)
-            settingsRepo.saveInt(SettingsRepository.Keys.VISUALIZATION_MODE, _visualizationMode.value)
-            settingsRepo.saveInt(SettingsRepository.Keys.OVERLAY_TYPE, _overlayType.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.OVERLAY_OPACITY, _overlayOpacity.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.GRID_SPACING, _gridSpacing.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.Z_SCALE, _zScale.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.FEATURE_SCALE_METERS, _featureScaleMeters.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.ANALYSIS_SENSITIVITY, _analysisSensitivity.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.CONTOUR_INTERVAL_METERS, _contourIntervalMeters.value)
-            settingsRepo.saveInt(SettingsRepository.Keys.CURRENT_SITE_INDEX, _currentSiteIndex.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.SWEEP_X, _sweepX.value)
-            settingsRepo.saveFloat(SettingsRepository.Keys.SWEEP_Y, _sweepY.value)
-        }
-    }
-
     override fun onCleared() {
         renderJob?.cancel()
         super.onCleared()
     }
-
 }
