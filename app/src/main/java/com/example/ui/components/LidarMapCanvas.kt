@@ -326,8 +326,7 @@ fun LidarMapCanvas(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "No LiDAR data loaded.
-Select a template below to render.",
+                    text = "No LiDAR data loaded.\nSelect a template below to render.",
                     color = Color.LightGray,
                     modifier = Modifier.padding(16.dp),
                 )
