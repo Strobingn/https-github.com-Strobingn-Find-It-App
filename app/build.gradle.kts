@@ -74,11 +74,11 @@ android {
 // with other apps' app-debug.apk artifacts.
 androidComponents {
   onVariants(selector().all()) { variant ->
-    variant.outputs
-      .filterIsInstance<com.android.build.api.variant.ApkVariantOutput>()
-      .forEach { output ->
-        output.outputFileName = "findit-${variant.buildType}.apk"
-      }
+    variant.outputs.forEach { output ->
+      output.javaClass.methods
+        .firstOrNull { it.name == "setOutputFileName" && it.parameterCount == 1 }
+        ?.invoke(output, "findit-${variant.buildType}.apk")
+    }
   }
 }
 
