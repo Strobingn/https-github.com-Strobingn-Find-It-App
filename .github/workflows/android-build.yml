@@ -1,6 +1,6 @@
 name: Build Lidar Metal Detector APK
 
-# Manual: repo  Actions  this workflow  Run workflow  pick branch
+# Manual: repo -> Actions -> this workflow -> Run workflow -> pick branch
 # CLI:    gh workflow run "Build Lidar Metal Detector APK" --ref grok-v7
 on:
   push:
