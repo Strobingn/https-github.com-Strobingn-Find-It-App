@@ -60,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel as composeViewModel
 import com.example.data.NormalizedRasterBounds
 import com.example.ui.components.CustomFileLoader
 import com.example.ui.components.LidarCanvasMode
@@ -74,6 +75,7 @@ private data class AppTab(val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
     AppTab("Terrain", Icons.Default.Map),
+    AppTab("Analysis", Icons.Default.Tune),
     AppTab("Finds", Icons.Default.Flag),
     AppTab("Import", Icons.Default.UploadFile),
 )
@@ -83,6 +85,7 @@ private val tabs = listOf(
 fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
     val selectedTab = rememberSaveable { mutableIntStateOf(0) }
     val terrainFocusMode = rememberSaveable { mutableStateOf(true) }
+    val analysisViewModel = composeViewModel<TerrainAnalysisViewModel>()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -127,7 +130,12 @@ fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
                 focusMode = terrainFocusMode.value,
                 onFocusModeChanged = { terrainFocusMode.value = it },
             )
-            1 -> FindsTab(viewModel = viewModel, padding = padding)
+            1 -> TerrainAnalysisScreen(
+                terrainViewModel = viewModel,
+                analysisViewModel = analysisViewModel,
+                padding = padding,
+            )
+            2 -> FindsTab(viewModel = viewModel, padding = padding)
             else -> ImportTab(
                 viewModel = viewModel,
                 padding = padding,
