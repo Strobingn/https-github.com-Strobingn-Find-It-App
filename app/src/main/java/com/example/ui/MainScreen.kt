@@ -181,8 +181,6 @@ private fun TerrainTab(
     val basemapBitmap by viewModel.basemapBitmap.collectAsStateWithLifecycle()
     val basemapStatus by viewModel.basemapStatus.collectAsStateWithLifecycle()
     val vmViewportReset by viewModel.viewportResetKey.collectAsStateWithLifecycle()
-    val viewportPanX by viewModel.viewportPanX.collectAsStateWithLifecycle()
-    val viewportPanY by viewModel.viewportPanY.collectAsStateWithLifecycle()
 
     val visibleBounds = remember { mutableStateOf(NormalizedRasterBounds.Full) }
     val zoomLevel = rememberSaveable { mutableStateOf(1f) }
@@ -194,10 +192,18 @@ private fun TerrainTab(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> viewModel.onLocationPermissionResult(granted) }
 
-    LaunchedEffect(visibleBounds.value, zoomLevel.value, canRefine) {
-        if (canRefine && zoomLevel.value >= 2.5f) {
-            delay(600)
-            if (!isRefining) viewModel.refineTerrain(visibleBounds.value)
+    // The canvas already waits for the pinch/pan gesture to settle before publishing these values.
+    // Imported LAS/LAZ detail is therefore loaded once, automatically, after 1.5x zoom.
+    LaunchedEffect(
+        visibleBounds.value,
+        zoomLevel.value,
+        canRefine,
+        isDetailed,
+        isRefining,
+    ) {
+        if (canRefine && !isDetailed && !isRefining && zoomLevel.value >= AUTO_DETAIL_ZOOM) {
+            delay(250)
+            viewModel.refineTerrain(visibleBounds.value)
         }
     }
 
@@ -225,7 +231,6 @@ private fun TerrainTab(
             onViewportChanged = { bounds, zoom ->
                 visibleBounds.value = bounds
                 zoomLevel.value = zoom
-                viewModel.updateViewport(zoom, viewportPanX, viewportPanY)
             },
             showHeatmap = heatmapEnabled,
             basemapBitmap = basemapBitmap,
@@ -326,31 +331,44 @@ private fun TerrainTab(
                     fontFamily = FontFamily.Monospace,
                 )
                 Text(
-                    if (showControls.value) "Controls open" else "Pinch to zoom · drag to pan · Tune for analysis",
+                    when {
+                        showControls.value -> "Controls open"
+                        canRefine && !isDetailed -> "Pinch past 1.5× for automatic point-cloud detail"
+                        else -> "Pinch to zoom · drag to pan · Tune for analysis"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
 
-        if (canRefine) {
+        // Compact status only; the old center-right panel blocked the terrain and captured drags.
+        if (canRefine && (isRefining || isDetailed || !detailMessage.isNullOrBlank())) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                 tonalElevation = 4.dp,
-                modifier = Modifier.align(Alignment.CenterEnd).padding(14.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 78.dp, end = 14.dp),
             ) {
-                Column(modifier = Modifier.padding(10.dp)) {
-                    Text(if (isDetailed) "Detailed terrain" else "Detail available", fontWeight = FontWeight.Bold)
-                    Text(detailMessage.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                    TextButton(
-                        onClick = { viewModel.refineTerrain(visibleBounds.value) },
-                        enabled = !isRefining,
-                    ) {
-                        Text(if (isRefining) "Loading…" else "Load detail here")
-                    }
-                    TextButton(onClick = viewModel::showWholeTerrain) {
-                        Text("Show whole terrain")
+                Row(
+                    modifier = Modifier.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = when {
+                            isRefining -> "Loading point-cloud detail…"
+                            isDetailed -> "Detailed terrain loaded"
+                            else -> detailMessage.orEmpty()
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (isDetailed) {
+                        TextButton(onClick = viewModel::showWholeTerrain) {
+                            Text("Whole terrain")
+                        }
                     }
                 }
             }
@@ -460,3 +478,5 @@ private fun compassLabel(azimuth: Float): String {
         else -> "NW"
     }
 }
+
+private const val AUTO_DETAIL_ZOOM = 1.5f
