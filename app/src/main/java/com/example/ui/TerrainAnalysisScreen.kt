@@ -71,21 +71,21 @@ fun TerrainAnalysisScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column {
                 Text(
                     text = "Phase 1 · Terrain Analysis",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "${TerrainAnalysisType.phaseOneEntries.size} core LiDAR products fully local and offline",
+                    text = "${TerrainAnalysisType.phaseOneEntries.size} core LiDAR products",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (cacheEntryCount > 0) {
                 TextButton(onClick = analysisViewModel::clearCache) {
-                    Text("Clear cache ($cacheEntryCount)")
+                    Text("Clear ($cacheEntryCount)")
                 }
             }
         }
