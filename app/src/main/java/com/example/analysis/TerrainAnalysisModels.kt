@@ -1,88 +1,121 @@
 package com.example.analysis
 
-/** Every locally-computed LiDAR/DEM product exposed by the Analysis screen. */
+/** Roadmap grouping used by the Analysis UI. Hydrology remains implemented but is intentionally last. */
+enum class TerrainAnalysisPhase {
+    CORE,
+    HYDROLOGY,
+}
+
+/** Every locally-computed LiDAR/DEM product supported by the engine. */
 enum class TerrainAnalysisType(
     val title: String,
     val description: String,
     val unit: String,
+    val phase: TerrainAnalysisPhase,
     val diverging: Boolean = false,
     val categorical: Boolean = false,
+    val usesLocalRadius: Boolean = false,
+    val usesHorizon: Boolean = false,
 ) {
     MULTI_HILLSHADE(
-        title = "Multi-layer hillshade",
+        title = "Multi-direction hillshade",
         description = "Blends illumination from four directions to reduce directional bias.",
         unit = "intensity",
+        phase = TerrainAnalysisPhase.CORE,
     ),
     SKY_VIEW_FACTOR(
         title = "Sky-View Factor",
         description = "Estimates how much of the sky hemisphere is visible from each cell.",
         unit = "fraction",
+        phase = TerrainAnalysisPhase.CORE,
+        usesHorizon = true,
     ),
     LOCAL_RELIEF_MODEL(
         title = "Local Relief Model",
         description = "Removes broad terrain trend to expose subtle banks, pits, platforms and walls.",
         unit = "m",
+        phase = TerrainAnalysisPhase.CORE,
         diverging = true,
+        usesLocalRadius = true,
     ),
     POSITIVE_OPENNESS(
         title = "Positive openness",
         description = "Highlights exposed ridges, banks and raised structures.",
         unit = "degrees",
+        phase = TerrainAnalysisPhase.CORE,
+        usesHorizon = true,
     ),
     NEGATIVE_OPENNESS(
         title = "Negative openness",
         description = "Highlights enclosed hollows, ditches, pits and cellar depressions.",
         unit = "degrees",
+        phase = TerrainAnalysisPhase.CORE,
+        usesHorizon = true,
     ),
     SLOPE(
         title = "Slope",
-        description = "Maximum terrain gradient calculated with a Horn 3x3 operator.",
+        description = "Maximum terrain gradient calculated with a Horn 3×3 operator.",
         unit = "degrees",
+        phase = TerrainAnalysisPhase.CORE,
     ),
     CURVATURE(
         title = "Curvature",
         description = "Second derivative surface separating convex and concave landforms.",
         unit = "1/m",
+        phase = TerrainAnalysisPhase.CORE,
         diverging = true,
     ),
     ASPECT(
         title = "Aspect",
         description = "Downslope compass direction; flat cells are marked neutral.",
         unit = "degrees",
+        phase = TerrainAnalysisPhase.CORE,
         categorical = true,
     ),
     RUGGEDNESS_INDEX(
-        title = "Ruggedness Index",
+        title = "Terrain Ruggedness Index",
         description = "RMS elevation difference between each cell and its neighbors.",
         unit = "m",
+        phase = TerrainAnalysisPhase.CORE,
     ),
     FLOW_ACCUMULATION(
         title = "Flow accumulation",
         description = "D8 upstream contributing-cell count using the bare-earth surface.",
         unit = "cells",
+        phase = TerrainAnalysisPhase.HYDROLOGY,
     ),
     WATERSHED(
         title = "Watersheds",
         description = "Labels drainage basins by their terminal outlet or internal sink.",
         unit = "basin",
+        phase = TerrainAnalysisPhase.HYDROLOGY,
         categorical = true,
     ),
     DEPRESSION_DEPTH(
         title = "Depression finder",
         description = "Priority-flood fill depth for closed pits and enclosed depressions.",
         unit = "m",
+        phase = TerrainAnalysisPhase.HYDROLOGY,
     ),
     ANCIENT_STREAM_LIKELIHOOD(
         title = "Ancient stream reconstruction",
         description = "Ranks valley-like corridors from flow, concavity and low-gradient terrain.",
         unit = "score",
+        phase = TerrainAnalysisPhase.HYDROLOGY,
     ),
     EROSION_SIMULATION(
         title = "Erosion simulation",
         description = "Relative erosion/deposition estimate from drainage, slope and curvature.",
         unit = "relative change",
+        phase = TerrainAnalysisPhase.HYDROLOGY,
         diverging = true,
     ),
+    ;
+
+    companion object {
+        /** The complete Phase 1 catalog, in the order shown to the user. */
+        val phaseOneEntries: List<TerrainAnalysisType> = entries.filter { it.phase == TerrainAnalysisPhase.CORE }
+    }
 }
 
 data class TerrainAnalysisOptions(
