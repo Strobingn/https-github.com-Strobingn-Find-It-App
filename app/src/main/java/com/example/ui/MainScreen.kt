@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -79,6 +80,7 @@ private val tabs = listOf(
     AppTab("Terrain", Icons.Default.Map),
     AppTab("Finds", Icons.Default.Flag),
     AppTab("Import", Icons.Default.UploadFile),
+    AppTab("Google Maps", Icons.Default.Layers), // New tab for Google Maps Overlay
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,10 +128,11 @@ fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
                 onFocusModeChanged = { terrainFocusMode.value = it },
             )
             1 -> FindsTab(viewModel, padding)
-            else -> ImportTab(viewModel, padding) {
+            2 -> ImportTab(viewModel, padding) {
                 selectedTab.intValue = 0
                 terrainFocusMode.value = true
             }
+            3 -> GoogleMapsOverlayTab(padding) // New case for Google Maps Overlay
         }
     }
 }
@@ -176,6 +179,12 @@ private fun TerrainTab(
     val basemapBitmap by viewModel.basemapBitmap.collectAsStateWithLifecycle()
     val basemapStatus by viewModel.basemapStatus.collectAsStateWithLifecycle()
     val vmViewportReset by viewModel.viewportResetKey.collectAsStateWithLifecycle()
+    
+    // Viewport persistence
+    val viewportZoom by viewModel.viewportZoom.collectAsStateWithLifecycle()
+    val viewportPanX by viewModel.viewportPanX.collectAsStateWithLifecycle()
+    val viewportPanY by viewModel.viewportPanY.collectAsStateWithLifecycle()
+    
     val visibleBounds = remember { mutableStateOf(NormalizedRasterBounds.Full) }
     val zoomLevel = rememberSaveable { mutableStateOf(1f) }
     val showControls = rememberSaveable { mutableStateOf(false) }
@@ -187,11 +196,11 @@ private fun TerrainTab(
     ) { granted -> viewModel.onLocationPermissionResult(granted) }
     val context = LocalContext.current
 
-    // Auto-load higher-resolution detail from the original LAZ/LAS once the user pinches to ≥2×
+    // Auto-load higher-resolution detail from the original LAZ/LAS once the user pinches to ≥2.5×
     // and the viewport settles. Debounced so continuous gestures don't spam reparse.
     // Manual "Load detail here" button still works for immediate trigger.
     LaunchedEffect(visibleBounds.value, zoomLevel.value, canRefine) {
-        if (canRefine && zoomLevel.value >= 2.0f) {
+        if (canRefine && zoomLevel.value >= 2.5f) {
             delay(600)
             if (!isRefining) {
                 viewModel.refineTerrain(visibleBounds.value)
@@ -223,6 +232,7 @@ private fun TerrainTab(
             onViewportChanged = { bounds, zoom ->
                 visibleBounds.value = bounds
                 zoomLevel.value = zoom
+                viewModel.updateViewport(zoom, viewportPanX, viewportPanY)
             },
             showHeatmap = heatmapEnabled,
             basemapBitmap = basemapBitmap,
@@ -334,7 +344,7 @@ private fun TerrainTab(
                 )
                 Button(
                     onClick = { viewModel.refineTerrain(visibleBounds.value) },
-                    enabled = zoomLevel.value >= 2.0f && !isRefining,
+                    enabled = zoomLevel.value >= 2.5f && !isRefining, // Updated threshold to 2.5x
                 ) {
                     Text(if (isRefining) "Reading original LAZ…" else "Load detail here")
                 }
@@ -449,6 +459,13 @@ private fun ImportTab(viewModel: HillshadeViewModel, padding: PaddingValues, onI
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+    }
+}
+
+@Composable
+private fun GoogleMapsOverlayTab(padding: PaddingValues) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(padding)) {
+        GoogleMapsOverlayScreen()
     }
 }
 
