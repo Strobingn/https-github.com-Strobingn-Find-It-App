@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Flag
@@ -398,7 +398,8 @@ private fun TerrainTab(
                 basemapStatus = basemapStatus,
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
-                    .heightIn(max = maxHeight * 0.88f),
+                    .heightIn(max = maxHeight * 0.88f)
+                    .verticalScroll(rememberScrollState()),
             )
         }
     }
@@ -410,38 +411,18 @@ private fun FindsTab(viewModel: HillshadeViewModel, padding: PaddingValues) {
     val sweepX by viewModel.sweepX.collectAsStateWithLifecycle()
     val sweepY by viewModel.sweepY.collectAsStateWithLifecycle()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Text("Finds", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Logged targets and field observations", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        items(signals, key = { it.id }) { signal ->
-            Surface(shape = RoundedCornerShape(14.dp), tonalElevation = 2.dp) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(signal.metalType.label, fontWeight = FontWeight.Bold)
-                    Text(
-                        "Grid ${signal.gridX.roundToInt()}, ${signal.gridY.roundToInt()}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-        }
-        item {
-            TargetLoggerPanel(
-                loggedSignals = signals,
-                currentSweepX = sweepX,
-                currentSweepY = sweepY,
-                onLogSignal = viewModel::logCurrentSignal,
-                onDeleteSignal = viewModel::deleteLoggedSignal,
-                onUpdateSignal = viewModel::updateLoggedSignal,
-                onClearAll = viewModel::clearLoggedSignals,
-            )
-        }
-    }
+    TargetLoggerPanel(
+        loggedSignals = signals,
+        currentSweepX = sweepX,
+        currentSweepY = sweepY,
+        onLogSignal = viewModel::logCurrentSignal,
+        onDeleteSignal = viewModel::deleteLoggedSignal,
+        onUpdateSignal = viewModel::updateLoggedSignal,
+        onClearAll = viewModel::clearLoggedSignals,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+    )
 }
 
 @Composable
@@ -451,7 +432,10 @@ private fun ImportTab(
     onImported: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(padding),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         CustomFileLoader(
