@@ -38,8 +38,14 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
-    private val _status = MutableStateFlow("Choose an analysis layer, then run it on the active terrain.")
+    private val _status = MutableStateFlow("Choose a Phase 1 layer, then run it on the active terrain.")
     val status: StateFlow<String> = _status.asStateFlow()
+
+    private val _cacheEntryCount = MutableStateFlow(0)
+    val cacheEntryCount: StateFlow<Int> = _cacheEntryCount.asStateFlow()
+
+    private val _lastResultWasCached = MutableStateFlow(false)
+    val lastResultWasCached: StateFlow<Boolean> = _lastResultWasCached.asStateFlow()
 
     private val _aiInterpretation = MutableStateFlow<String?>(null)
     val aiInterpretation: StateFlow<String?> = _aiInterpretation.asStateFlow()
@@ -49,12 +55,33 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
 
     private var analysisJob: Job? = null
     private var aiJob: Job? = null
-    private var lastGridIdentity: Int? = null
+    private var requestGeneration = 0L
+
+    private data class CacheKey(
+        val gridIdentity: Int,
+        val width: Int,
+        val height: Int,
+        val cellSizeBits: Int,
+        val type: TerrainAnalysisType,
+        val options: TerrainAnalysisOptions,
+    )
+
+    private data class CachedResult(
+        val layer: TerrainAnalysisLayer,
+        val bitmap: Bitmap,
+    )
+
+    private val resultCache = object : LinkedHashMap<CacheKey, CachedResult>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<CacheKey, CachedResult>?): Boolean {
+            return size > MAX_CACHE_ENTRIES
+        }
+    }
 
     fun selectType(type: TerrainAnalysisType) {
-        if (_selectedType.value == type) return
+        if (type !in TerrainAnalysisType.phaseOneEntries || _selectedType.value == type) return
         _selectedType.value = type
         _aiInterpretation.value = null
+        _lastResultWasCached.value = false
         _status.value = "${type.title} selected. Run analysis to calculate this layer."
     }
 
@@ -70,45 +97,85 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
         _options.value = _options.value.copy(directionCount = value.coerceIn(8, 24))
     }
 
-    fun updateErosionIterations(value: Int) {
-        _options.value = _options.value.copy(erosionIterations = value.coerceIn(1, 100))
-    }
-
-    fun updateRainfallFactor(value: Float) {
-        _options.value = _options.value.copy(rainfallFactor = value.coerceIn(0.1f, 5f))
-    }
-
     fun runAnalysis(grid: ElevationGrid) {
         analysisJob?.cancel()
         aiJob?.cancel()
         _aiInterpretation.value = null
+
         val type = _selectedType.value
-        val optionsSnapshot = _options.value
-        val gridIdentity = System.identityHashCode(grid)
-        lastGridIdentity = gridIdentity
+        val normalizedOptions = _options.value.normalized(grid.cellSizeMeters)
+        val cacheKey = CacheKey(
+            gridIdentity = System.identityHashCode(grid),
+            width = grid.width,
+            height = grid.height,
+            cellSizeBits = grid.cellSizeMeters.toBits(),
+            type = type,
+            options = normalizedOptions,
+        )
+        val generation = ++requestGeneration
+
+        synchronized(resultCache) {
+            resultCache[cacheKey]
+        }?.let { cached ->
+            _layer.value = cached.layer
+            _bitmap.value = cached.bitmap
+            _lastResultWasCached.value = true
+            _status.value = "${cached.layer.summary} Loaded instantly from analysis cache."
+            return
+        }
+
         analysisJob = viewModelScope.launch {
             _isRunning.value = true
+            _lastResultWasCached.value = false
             _status.value = "Calculating ${type.title} locally…"
             try {
                 val result = withContext(Dispatchers.Default) {
-                    TerrainAnalysisEngine.analyze(grid, type, optionsSnapshot)
+                    TerrainAnalysisEngine.analyze(grid, type, normalizedOptions)
                 }
                 val rendered = withContext(Dispatchers.Default) {
                     TerrainAnalysisRenderer.render(result)
                 }
-                if (lastGridIdentity == gridIdentity && _selectedType.value == type) {
-                    _layer.value = result
-                    _bitmap.value = rendered
-                    _status.value = result.summary
+                if (generation != requestGeneration || _selectedType.value != type) return@launch
+
+                synchronized(resultCache) {
+                    resultCache[cacheKey] = CachedResult(result, rendered)
+                    _cacheEntryCount.value = resultCache.size
                 }
+                _layer.value = result
+                _bitmap.value = rendered
+                _status.value = result.summary
             } catch (cancelled: CancellationException) {
+                if (generation == requestGeneration) {
+                    _status.value = "${type.title} calculation cancelled."
+                }
                 throw cancelled
             } catch (error: Exception) {
-                _status.value = error.message ?: "Terrain analysis failed."
+                if (generation == requestGeneration) {
+                    _status.value = error.message ?: "Terrain analysis failed."
+                }
             } finally {
-                _isRunning.value = false
+                if (generation == requestGeneration) {
+                    _isRunning.value = false
+                }
             }
         }
+    }
+
+    fun cancelAnalysis() {
+        requestGeneration++
+        analysisJob?.cancel()
+        analysisJob = null
+        _isRunning.value = false
+        _status.value = "Analysis cancelled."
+    }
+
+    fun clearCache() {
+        synchronized(resultCache) {
+            resultCache.clear()
+            _cacheEntryCount.value = 0
+        }
+        _lastResultWasCached.value = false
+        _status.value = "Analysis cache cleared."
     }
 
     fun requestAiInterpretation(terrainSummary: String) {
@@ -120,21 +187,31 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
         aiJob = viewModelScope.launch {
             _isAiRunning.value = true
             _aiInterpretation.value = null
-            aiInterpreter.interpret(
-                layer = currentLayer,
-                terrainSummary = terrainSummary,
-            ).onSuccess { interpretation ->
-                _aiInterpretation.value = interpretation
-            }.onFailure { error ->
-                _aiInterpretation.value = "AI interpretation unavailable: ${error.message ?: "Unknown error"}"
+            try {
+                aiInterpreter.interpret(
+                    layer = currentLayer,
+                    terrainSummary = terrainSummary,
+                ).onSuccess { interpretation ->
+                    _aiInterpretation.value = interpretation
+                }.onFailure { error ->
+                    _aiInterpretation.value = "AI interpretation unavailable: ${error.message ?: "Unknown error"}"
+                }
+            } finally {
+                _isAiRunning.value = false
             }
-            _isAiRunning.value = false
         }
     }
 
     override fun onCleared() {
         analysisJob?.cancel()
         aiJob?.cancel()
+        synchronized(resultCache) {
+            resultCache.clear()
+        }
         super.onCleared()
+    }
+
+    private companion object {
+        const val MAX_CACHE_ENTRIES = 12
     }
 }
