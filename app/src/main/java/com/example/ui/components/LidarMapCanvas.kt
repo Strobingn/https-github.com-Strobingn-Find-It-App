@@ -1,4 +1,5 @@
 package com.example.ui.components
+
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -46,7 +47,9 @@ import com.example.data.TargetSignal
 import com.example.data.computeDigPriorityHeatmap
 import com.example.geospatial.GeoSpatialLibrary
 import androidx.compose.ui.graphics.lerp
+
 enum class LidarCanvasMode { SURVEY, EXPLORE }
+
 @Composable
 fun LidarMapCanvas(
     bitmap: Bitmap?,
@@ -91,13 +94,17 @@ fun LidarMapCanvas(
     val heatmapCells = remember(loggedSignals, showHeatmap) {
         if (showHeatmap) computeDigPriorityHeatmap(loggedSignals, HEATMAP_BINS) else null
     }
+    
+    // Initialize zoom and pan from the ViewModel or use defaults
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    
     LaunchedEffect(viewportResetKey, mode) {
         zoom = 1f
         pan = Offset.Zero
     }
+    
     LaunchedEffect(zoom, pan, viewportSize, imageBitmap) {
         val image = imageBitmap ?: return@LaunchedEffect
         val viewportWidth = viewportSize.width.toFloat().coerceAtLeast(1f)
@@ -115,6 +122,7 @@ fun LidarMapCanvas(
         ).sanitized()
         onViewportChanged(bounds, zoom)
     }
+    
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         if (mode == LidarCanvasMode.EXPLORE) {
             val nextZoom = (zoom * zoomChange).coerceIn(1f, 32f)
@@ -132,6 +140,7 @@ fun LidarMapCanvas(
             )
         }
     }
+    
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
