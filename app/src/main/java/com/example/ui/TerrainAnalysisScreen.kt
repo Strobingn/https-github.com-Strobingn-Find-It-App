@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,8 @@ fun TerrainAnalysisScreen(
     val bitmap by analysisViewModel.bitmap.collectAsStateWithLifecycle()
     val isRunning by analysisViewModel.isRunning.collectAsStateWithLifecycle()
     val status by analysisViewModel.status.collectAsStateWithLifecycle()
+    val cacheEntryCount by analysisViewModel.cacheEntryCount.collectAsStateWithLifecycle()
+    val lastResultWasCached by analysisViewModel.lastResultWasCached.collectAsStateWithLifecycle()
     val aiInterpretation by analysisViewModel.aiInterpretation.collectAsStateWithLifecycle()
     val isAiRunning by analysisViewModel.isAiRunning.collectAsStateWithLifecycle()
     val menuExpanded = remember { mutableStateOf(false) }
@@ -63,11 +66,30 @@ fun TerrainAnalysisScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            text = "LiDAR Analysis",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Phase 1 · Terrain Analysis",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "${TerrainAnalysisType.phaseOneEntries.size} core LiDAR products fully local and offline",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (cacheEntryCount > 0) {
+                TextButton(onClick = analysisViewModel::clearCache) {
+                    Text("Clear cache ($cacheEntryCount)")
+                }
+            }
+        }
+
         Text(
             text = terrainSummary,
             style = MaterialTheme.typography.bodyMedium,
@@ -90,7 +112,7 @@ fun TerrainAnalysisScreen(
                 expanded = menuExpanded.value,
                 onDismissRequest = { menuExpanded.value = false },
             ) {
-                TerrainAnalysisType.entries.forEach { type ->
+                TerrainAnalysisType.phaseOneEntries.forEach { type ->
                     DropdownMenuItem(
                         text = {
                             Column {
@@ -111,37 +133,36 @@ fun TerrainAnalysisScreen(
             }
         }
 
-        Text(
-            text = selectedType.description,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Text(text = selectedType.description, style = MaterialTheme.typography.bodyMedium)
 
         AnalysisParameterControls(
             selectedType = selectedType,
             localRadius = options.localRadiusMeters,
             horizonRadius = options.horizonRadiusMeters,
             directionCount = options.directionCount,
-            erosionIterations = options.erosionIterations,
-            rainfallFactor = options.rainfallFactor,
             onLocalRadiusChanged = analysisViewModel::updateLocalRadius,
             onHorizonRadiusChanged = analysisViewModel::updateHorizonRadius,
             onDirectionCountChanged = analysisViewModel::updateDirectionCount,
-            onErosionIterationsChanged = analysisViewModel::updateErosionIterations,
-            onRainfallFactorChanged = analysisViewModel::updateRainfallFactor,
         )
 
-        Button(
-            onClick = { analysisViewModel.runAnalysis(grid) },
-            enabled = !isRunning,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (isRunning) {
+        if (isRunning) {
+            OutlinedButton(
+                onClick = analysisViewModel::cancelAnalysis,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 CircularProgressIndicator(
                     modifier = Modifier.padding(end = 10.dp),
                     strokeWidth = 2.dp,
                 )
+                Text("Cancel ${selectedType.title}")
             }
-            Text(if (isRunning) "Calculating…" else "Run ${selectedType.title}")
+        } else {
+            Button(
+                onClick = { analysisViewModel.runAnalysis(grid) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Run ${selectedType.title}")
+            }
         }
 
         Text(
@@ -149,20 +170,30 @@ fun TerrainAnalysisScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (lastResultWasCached) {
+            Text(
+                text = "Cached result · no recalculation required",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
 
         bitmap?.let { rendered ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
             ) {
-                Image(
-                    bitmap = rendered.asImageBitmap(),
-                    contentDescription = "${selectedType.title} result",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(rendered.width.toFloat() / rendered.height.coerceAtLeast(1)),
-                    contentScale = ContentScale.Fit,
-                )
+                Column {
+                    Image(
+                        bitmap = rendered.asImageBitmap(),
+                        contentDescription = "${selectedType.title} result",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(rendered.width.toFloat() / rendered.height.coerceAtLeast(1)),
+                        contentScale = ContentScale.Fit,
+                    )
+                    AnalysisLegend(selectedType)
+                }
             }
         }
 
@@ -217,21 +248,11 @@ private fun AnalysisParameterControls(
     localRadius: Float,
     horizonRadius: Float,
     directionCount: Int,
-    erosionIterations: Int,
-    rainfallFactor: Float,
     onLocalRadiusChanged: (Float) -> Unit,
     onHorizonRadiusChanged: (Float) -> Unit,
     onDirectionCountChanged: (Int) -> Unit,
-    onErosionIterationsChanged: (Int) -> Unit,
-    onRainfallFactorChanged: (Float) -> Unit,
 ) {
-    val usesLocalRadius = selectedType == TerrainAnalysisType.LOCAL_RELIEF_MODEL
-    val usesHorizon = selectedType == TerrainAnalysisType.SKY_VIEW_FACTOR ||
-        selectedType == TerrainAnalysisType.POSITIVE_OPENNESS ||
-        selectedType == TerrainAnalysisType.NEGATIVE_OPENNESS
-    val usesErosion = selectedType == TerrainAnalysisType.EROSION_SIMULATION
-
-    if (!usesLocalRadius && !usesHorizon && !usesErosion) return
+    if (!selectedType.usesLocalRadius && !selectedType.usesHorizon) return
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -239,7 +260,7 @@ private fun AnalysisParameterControls(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Analysis parameters", fontWeight = FontWeight.Bold)
-            if (usesLocalRadius) {
+            if (selectedType.usesLocalRadius) {
                 SliderControl(
                     title = "Local radius",
                     valueLabel = "${localRadius.roundToInt()} m",
@@ -248,7 +269,7 @@ private fun AnalysisParameterControls(
                     onValueChange = onLocalRadiusChanged,
                 )
             }
-            if (usesHorizon) {
+            if (selectedType.usesHorizon) {
                 SliderControl(
                     title = "Horizon radius",
                     valueLabel = "${horizonRadius.roundToInt()} m",
@@ -265,25 +286,25 @@ private fun AnalysisParameterControls(
                     onValueChange = { onDirectionCountChanged(it.roundToInt()) },
                 )
             }
-            if (usesErosion) {
-                SliderControl(
-                    title = "Simulation iterations",
-                    valueLabel = erosionIterations.toString(),
-                    value = erosionIterations.toFloat(),
-                    valueRange = 1f..100f,
-                    steps = 98,
-                    onValueChange = { onErosionIterationsChanged(it.roundToInt()) },
-                )
-                SliderControl(
-                    title = "Rainfall factor",
-                    valueLabel = "${"%.1f".format(rainfallFactor)}×",
-                    value = rainfallFactor,
-                    valueRange = 0.1f..5f,
-                    onValueChange = onRainfallFactorChanged,
-                )
-            }
         }
     }
+}
+
+@Composable
+private fun AnalysisLegend(type: TerrainAnalysisType) {
+    val labels = when {
+        type == TerrainAnalysisType.ASPECT -> "N · E · S · W · flat cells shown neutral"
+        type.diverging -> "Negative / concave  ←  neutral  →  positive / convex"
+        type == TerrainAnalysisType.MULTI_HILLSHADE -> "Shadow  ←  illumination  →  bright"
+        else -> "Low  ←  ${type.unit}  →  high"
+    }
+    Text(
+        text = labels,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        style = MaterialTheme.typography.labelMedium,
+        fontFamily = FontFamily.Monospace,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
