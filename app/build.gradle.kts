@@ -1,8 +1,10 @@
-val localProperties = java.util.Properties().apply {
+import java.util.Properties
+
+val localProperties = Properties().apply {
   rootProject.file("local.properties")
     .takeIf { it.isFile }
     ?.inputStream()
-    ?.use(::load)
+    ?.use { stream -> load(stream) }
 }
 
 fun quotedBuildConfigValue(value: String): String =
