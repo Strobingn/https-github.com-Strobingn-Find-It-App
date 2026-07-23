@@ -97,6 +97,14 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
         _options.value = _options.value.copy(directionCount = value.coerceIn(8, 24))
     }
 
+    fun updateErosionIterations(value: Int) {
+        _options.value = _options.value.copy(erosionIterations = value.coerceIn(1, 100))
+    }
+
+    fun updateRainfallFactor(value: Float) {
+        _options.value = _options.value.copy(rainfallFactor = value.coerceIn(0.1f, 5f))
+    }
+
     fun runAnalysis(grid: ElevationGrid) {
         analysisJob?.cancel()
         aiJob?.cancel()
