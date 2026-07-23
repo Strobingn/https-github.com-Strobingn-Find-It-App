@@ -1,3 +1,19 @@
+val localProperties = java.util.Properties().apply {
+  rootProject.file("local.properties")
+    .takeIf { it.isFile }
+    ?.inputStream()
+    ?.use(::load)
+}
+
+fun quotedBuildConfigValue(value: String): String =
+  "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+val openAiProxyUrl = (
+  localProperties.getProperty("OPENAI_PROXY_URL")
+    ?: System.getenv("OPENAI_PROXY_URL")
+    ?: ""
+).trim()
+
 val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
 val releaseKeystoreFile = releaseKeystorePath?.takeIf { it.isNotBlank() }?.let { file(it) }
 val releaseStorePassword = System.getenv("STORE_PASSWORD")
@@ -27,6 +43,7 @@ android {
     versionName = "1.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    buildConfigField("String", "OPENAI_PROXY_URL", quotedBuildConfigValue(openAiProxyUrl))
   }
 
   signingConfigs {
