@@ -1,0 +1,100 @@
+name: Find-it-appAPK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - grok
+      - grok-v7
+      - mistral-v18
+      - mitral-V16
+      - mitral-v15
+      - Mistral-V17
+      - Mistral-V21-Google-Maps-Overlay
+      - "feature/**"
+      - "fix/**"
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Create local.properties
+        run: |
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" > local.properties
+
+      - name: Require Gradle wrapper
+        run: |
+          test -f gradlew || { echo "gradlew missing on this branch"; ls -la; exit 1; }
+          chmod +x ./gradlew
+
+      - name: Ensure .env for secrets plugin
+        run: |
+          if [ ! -f .env ] && [ -f .env.example ]; then
+            cp .env.example .env
+          fi
+          touch .env
+
+      - name: Ensure Android debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            cp "$HOME/.android/debug.keystore" debug.keystore
+          fi
+
+      - name: Unit tests
+        continue-on-error: true
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace --info
+
+      - name: Compute safe ref name for artifacts
+        id: safe_ref
+        run: echo "value=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidar-metal-detector-debug-${{ steps.safe_ref.outputs.value }}-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Build Release APK (unsigned OK)
+        continue-on-error: true
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Upload Release APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lidar-metal-detector-release-${{ steps.safe_ref.outputs.value }}-${{ github.run_number }}
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
+          retention-days: 14
