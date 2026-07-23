@@ -29,14 +29,23 @@ class TerrainAnalysisEngineTest {
             assertTrue(layer.minimum.isFinite())
             assertTrue(layer.maximum.isFinite())
             assertTrue(layer.mean.isFinite())
+            assertTrue(layer.standardDeviation.isFinite())
         }
     }
 
     @Test
-    fun flatTerrainHasZeroSlopeCurvatureAndRelief() {
+    fun phaseOneCatalogContainsExactlyNineCoreProducts() {
+        assertEquals(9, TerrainAnalysisType.phaseOneEntries.size)
+        assertTrue(TerrainAnalysisType.phaseOneEntries.all { it.phase == TerrainAnalysisPhase.CORE })
+        assertTrue(TerrainAnalysisType.FLOW_ACCUMULATION !in TerrainAnalysisType.phaseOneEntries)
+    }
+
+    @Test
+    fun flatTerrainHasZeroSlopeCurvatureReliefAndRuggedness() {
         val grid = constantGrid(width = 17, height = 17, elevation = 12f)
         val slope = TerrainAnalysisEngine.analyze(grid, TerrainAnalysisType.SLOPE)
         val curvature = TerrainAnalysisEngine.analyze(grid, TerrainAnalysisType.CURVATURE)
+        val ruggedness = TerrainAnalysisEngine.analyze(grid, TerrainAnalysisType.RUGGEDNESS_INDEX)
         val relief = TerrainAnalysisEngine.analyze(
             grid,
             TerrainAnalysisType.LOCAL_RELIEF_MODEL,
@@ -47,11 +56,79 @@ class TerrainAnalysisEngineTest {
             TerrainAnalysisType.SKY_VIEW_FACTOR,
             TerrainAnalysisOptions(horizonRadiusMeters = 6f, directionCount = 8),
         )
+        val aspect = TerrainAnalysisEngine.analyze(grid, TerrainAnalysisType.ASPECT)
 
         assertTrue(slope.values.maxOf { abs(it) } < 0.0001f)
         assertTrue(curvature.values.maxOf { abs(it) } < 0.0001f)
+        assertTrue(ruggedness.values.maxOf { abs(it) } < 0.0001f)
         assertTrue(relief.values.maxOf { abs(it) } < 0.0001f)
         assertTrue(skyView.values.minOrNull()!! > 0.99f)
+        assertTrue(aspect.values.all { it == -1f })
+    }
+
+    @Test
+    fun eastRisingPlaneHasExpectedSlopeAndWestFacingAspect() {
+        val width = 21
+        val height = 21
+        val elevations = FloatArray(width * height) { index -> (index % width).toFloat() }
+        val grid = ElevationGrid(
+            width = width,
+            height = height,
+            bareEarth = elevations,
+            canopySpikes = FloatArray(elevations.size),
+            cellSizeMeters = 1f,
+        )
+
+        val slope = TerrainAnalysisEngine.analyze(grid, TerrainAnalysisType.SLOPE)
+        val aspect = TerrainAnalysisEngine.analyze(grid, TerrainAnalysisType.ASPECT)
+        val center = (height / 2) * width + width / 2
+
+        assertTrue(abs(slope.values[center] - 45f) < 0.25f)
+        assertTrue(abs(aspect.values[center] - 270f) < 0.25f)
+    }
+
+    @Test
+    fun moundAndPitSeparatePositiveAndNegativeOpenness() {
+        val width = 25
+        val height = 25
+        val elevations = FloatArray(width * height)
+        val center = (height / 2) * width + width / 2
+        val options = TerrainAnalysisOptions(horizonRadiusMeters = 8f, directionCount = 8)
+
+        elevations[center] = 4f
+        val moundGrid = ElevationGrid(
+            width = width,
+            height = height,
+            bareEarth = elevations.copyOf(),
+            canopySpikes = FloatArray(elevations.size),
+            cellSizeMeters = 1f,
+        )
+        val moundPositive = TerrainAnalysisEngine.analyze(moundGrid, TerrainAnalysisType.POSITIVE_OPENNESS, options)
+        val moundNegative = TerrainAnalysisEngine.analyze(moundGrid, TerrainAnalysisType.NEGATIVE_OPENNESS, options)
+        assertTrue(moundPositive.values[center] > moundNegative.values[center])
+
+        elevations[center] = -4f
+        val pitGrid = ElevationGrid(
+            width = width,
+            height = height,
+            bareEarth = elevations,
+            canopySpikes = FloatArray(elevations.size),
+            cellSizeMeters = 1f,
+        )
+        val pitPositive = TerrainAnalysisEngine.analyze(pitGrid, TerrainAnalysisType.POSITIVE_OPENNESS, options)
+        val pitNegative = TerrainAnalysisEngine.analyze(pitGrid, TerrainAnalysisType.NEGATIVE_OPENNESS, options)
+        assertTrue(pitNegative.values[center] > pitPositive.values[center])
+    }
+
+    @Test
+    fun layerReportsCoverageAndStandardDeviation() {
+        val grid = rollingGrid(width = 13, height = 11)
+        val layer = TerrainAnalysisEngine.analyze(grid, TerrainAnalysisType.SLOPE)
+
+        assertEquals(grid.width * grid.height, layer.validCellCount)
+        assertTrue(abs(layer.coveragePercent - 100f) < 0.001f)
+        assertTrue(layer.standardDeviation >= 0f)
+        assertTrue(layer.aiSummary().contains("standard deviation"))
     }
 
     @Test
