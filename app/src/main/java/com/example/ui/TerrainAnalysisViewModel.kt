@@ -1,7 +1,11 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.ContentValues
 import android.graphics.Bitmap
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.analysis.AiTerrainInterpreter
@@ -11,6 +15,7 @@ import com.example.analysis.TerrainAnalysisOptions
 import com.example.analysis.TerrainAnalysisRenderer
 import com.example.analysis.TerrainAnalysisType
 import com.example.data.ElevationGrid
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,6 +52,12 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
     private val _lastResultWasCached = MutableStateFlow(false)
     val lastResultWasCached: StateFlow<Boolean> = _lastResultWasCached.asStateFlow()
 
+    private val _exportStatus = MutableStateFlow<String?>(null)
+    val exportStatus: StateFlow<String?> = _exportStatus.asStateFlow()
+
+    private val _isExporting = MutableStateFlow(false)
+    val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
+
     private val _aiInterpretation = MutableStateFlow<String?>(null)
     val aiInterpretation: StateFlow<String?> = _aiInterpretation.asStateFlow()
 
@@ -55,6 +66,7 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
 
     private var analysisJob: Job? = null
     private var aiJob: Job? = null
+    private var exportJob: Job? = null
     private var requestGeneration = 0L
 
     private data class CacheKey(
@@ -79,22 +91,29 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
 
     fun selectType(type: TerrainAnalysisType) {
         if (type !in TerrainAnalysisType.phaseOneEntries || _selectedType.value == type) return
+        analysisJob?.cancel()
+        requestGeneration++
+        _isRunning.value = false
         _selectedType.value = type
         _aiInterpretation.value = null
+        _exportStatus.value = null
         _lastResultWasCached.value = false
         _status.value = "${type.title} selected. Run analysis to calculate this layer."
     }
 
     fun updateLocalRadius(value: Float) {
         _options.value = _options.value.copy(localRadiusMeters = value.coerceIn(1f, 100f))
+        _lastResultWasCached.value = false
     }
 
     fun updateHorizonRadius(value: Float) {
         _options.value = _options.value.copy(horizonRadiusMeters = value.coerceIn(5f, 250f))
+        _lastResultWasCached.value = false
     }
 
     fun updateDirectionCount(value: Int) {
         _options.value = _options.value.copy(directionCount = value.coerceIn(8, 24))
+        _lastResultWasCached.value = false
     }
 
     fun updateErosionIterations(value: Int) {
@@ -109,6 +128,7 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
         analysisJob?.cancel()
         aiJob?.cancel()
         _aiInterpretation.value = null
+        _exportStatus.value = null
 
         val type = _selectedType.value
         val normalizedOptions = _options.value.normalized(grid.cellSizeMeters)
@@ -186,6 +206,74 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
         _status.value = "Analysis cache cleared."
     }
 
+    fun exportCurrentPng() {
+        val currentLayer = _layer.value
+        val currentBitmap = _bitmap.value
+        if (currentLayer == null || currentBitmap == null) {
+            _exportStatus.value = "Run an analysis before exporting."
+            return
+        }
+        exportJob?.cancel()
+        exportJob = viewModelScope.launch {
+            _isExporting.value = true
+            _exportStatus.value = "Saving ${currentLayer.type.title} PNG…"
+            try {
+                val fileName = buildString {
+                    append("find-it-")
+                    append(currentLayer.type.name.lowercase(Locale.US).replace('_', '-'))
+                    append('-')
+                    append(System.currentTimeMillis())
+                    append(".png")
+                }
+                withContext(Dispatchers.IO) {
+                    saveBitmapToPictures(currentBitmap, fileName)
+                }
+                _exportStatus.value = "Saved $fileName to Pictures/Find It."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _exportStatus.value = "PNG export failed: ${error.message ?: "unknown error"}"
+            } finally {
+                _isExporting.value = false
+            }
+        }
+    }
+
+    private fun saveBitmapToPictures(bitmap: Bitmap, fileName: String) {
+        val resolver = getApplication<Application>().contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Find It")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        val uri = checkNotNull(resolver.insert(collection, values)) {
+            "Android could not create the export file."
+        }
+        try {
+            resolver.openOutputStream(uri)?.use { stream ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) {
+                    "Bitmap compression failed."
+                }
+            } ?: error("Android could not open the export file.")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+        } catch (error: Exception) {
+            resolver.delete(uri, null, null)
+            throw error
+        }
+    }
+
     fun requestAiInterpretation(terrainSummary: String) {
         val currentLayer = _layer.value ?: run {
             _status.value = "Run a terrain analysis before requesting AI interpretation."
@@ -213,6 +301,7 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
     override fun onCleared() {
         analysisJob?.cancel()
         aiJob?.cancel()
+        exportJob?.cancel()
         synchronized(resultCache) {
             resultCache.clear()
         }
