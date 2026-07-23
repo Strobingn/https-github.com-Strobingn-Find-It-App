@@ -80,7 +80,7 @@ private val tabs = listOf(
     AppTab("Terrain", Icons.Default.Map),
     AppTab("Finds", Icons.Default.Flag),
     AppTab("Import", Icons.Default.UploadFile),
-    AppTab("Google Maps", Icons.Default.Layers), // New tab for Google Maps Overlay
+    AppTab("Google Maps", Icons.Default.Layers),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -132,7 +132,7 @@ fun MainScreen(viewModel: HillshadeViewModel, modifier: Modifier = Modifier) {
                 selectedTab.intValue = 0
                 terrainFocusMode.value = true
             }
-            3 -> GoogleMapsOverlayTab(padding) // New case for Google Maps Overlay
+            3 -> GoogleMapsOverlayTab(padding = padding)
         }
     }
 }
@@ -180,7 +180,6 @@ private fun TerrainTab(
     val basemapStatus by viewModel.basemapStatus.collectAsStateWithLifecycle()
     val vmViewportReset by viewModel.viewportResetKey.collectAsStateWithLifecycle()
     
-    // Viewport persistence
     val viewportZoom by viewModel.viewportZoom.collectAsStateWithLifecycle()
     val viewportPanX by viewModel.viewportPanX.collectAsStateWithLifecycle()
     val viewportPanY by viewModel.viewportPanY.collectAsStateWithLifecycle()
@@ -189,16 +188,12 @@ private fun TerrainTab(
     val zoomLevel = rememberSaveable { mutableStateOf(1f) }
     val showControls = rememberSaveable { mutableStateOf(false) }
     val localViewportResetKey = rememberSaveable { mutableIntStateOf(0) }
-    // Combine local "fit" button with ViewModel-driven resets (after 2× detail load / show whole)
     val viewportResetKey = vmViewportReset + localViewportResetKey.intValue
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> viewModel.onLocationPermissionResult(granted) }
     val context = LocalContext.current
 
-    // Auto-load higher-resolution detail from the original LAZ/LAS once the user pinches to ≥2.5×
-    // and the viewport settles. Debounced so continuous gestures don't spam reparse.
-    // Manual "Load detail here" button still works for immediate trigger.
     LaunchedEffect(visibleBounds.value, zoomLevel.value, canRefine) {
         if (canRefine && zoomLevel.value >= 2.5f) {
             delay(600)
@@ -310,7 +305,7 @@ private fun TerrainTab(
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
             modifier = Modifier.align(Alignment.BottomStart).padding(14.dp),
         ) {
-            Column(modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
                 val widthMeters = (elevationGrid.width - 1).coerceAtLeast(1) * elevationGrid.cellSizeMeters
                 val heightMeters = (elevationGrid.height - 1).coerceAtLeast(1) * elevationGrid.cellSizeMeters
                 Text(
@@ -344,7 +339,7 @@ private fun TerrainTab(
                 )
                 Button(
                     onClick = { viewModel.refineTerrain(visibleBounds.value) },
-                    enabled = zoomLevel.value >= 2.5f && !isRefining, // Updated threshold to 2.5x
+                    enabled = zoomLevel.value >= 2.5f && !isRefining,
                 ) {
                     Text(if (isRefining) "Reading original LAZ…" else "Load detail here")
                 }
