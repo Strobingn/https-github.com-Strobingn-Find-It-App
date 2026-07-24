@@ -107,8 +107,6 @@ fun LidarMapCanvas(
         pan = Offset.Zero
     }
 
-    // Wait until the pinch/pan gesture has settled before notifying the ViewModel. This prevents
-    // dozens of full terrain renders from cancelling one another while the user's fingers move.
     LaunchedEffect(zoom, pan, viewportSize, imageBitmap) {
         val image = imageBitmap ?: return@LaunchedEffect
         if (viewportSize.width <= 0 || viewportSize.height <= 0) return@LaunchedEffect
@@ -116,24 +114,21 @@ fun LidarMapCanvas(
 
         val viewportWidth = viewportSize.width.toFloat()
         val viewportHeight = viewportSize.height.toFloat()
-        val fit = containScale(
-            viewportWidth = viewportWidth,
-            viewportHeight = viewportHeight,
-            sourceWidth = image.width.toFloat(),
-            sourceHeight = image.height.toFloat(),
-        )
+        val fit = containScale(viewportWidth, viewportHeight, image.width.toFloat(), image.height.toFloat())
         val displayWidth = image.width * fit * zoom
         val displayHeight = image.height * fit * zoom
         val imageLeft = (viewportWidth - displayWidth) * 0.5f + pan.x
         val imageTop = (viewportHeight - displayHeight) * 0.5f + pan.y
 
-        val bounds = NormalizedRasterBounds(
-            left = ((-imageLeft) / displayWidth).toDouble().coerceIn(0.0, 1.0),
-            top = ((-imageTop) / displayHeight).toDouble().coerceIn(0.0, 1.0),
-            right = ((viewportWidth - imageLeft) / displayWidth).toDouble().coerceIn(0.0, 1.0),
-            bottom = ((viewportHeight - imageTop) / displayHeight).toDouble().coerceIn(0.0, 1.0),
-        ).sanitized()
-        onViewportChanged(bounds, zoom)
+        onViewportChanged(
+            NormalizedRasterBounds(
+                left = ((-imageLeft) / displayWidth).toDouble().coerceIn(0.0, 1.0),
+                top = ((-imageTop) / displayHeight).toDouble().coerceIn(0.0, 1.0),
+                right = ((viewportWidth - imageLeft) / displayWidth).toDouble().coerceIn(0.0, 1.0),
+                bottom = ((viewportHeight - imageTop) / displayHeight).toDouble().coerceIn(0.0, 1.0),
+            ).sanitized(),
+            zoom,
+        )
     }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
@@ -145,10 +140,8 @@ fun LidarMapCanvas(
         val sourceHeight = imageBitmap?.height?.toFloat()?.coerceAtLeast(1f) ?: viewportHeight
         val fit = containScale(viewportWidth, viewportHeight, sourceWidth, sourceHeight)
         val nextZoom = (zoom * zoomChange).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        val scaledWidth = sourceWidth * fit * nextZoom
-        val scaledHeight = sourceHeight * fit * nextZoom
-        val maxPanX = ((scaledWidth - viewportWidth) * 0.5f).coerceAtLeast(0f)
-        val maxPanY = ((scaledHeight - viewportHeight) * 0.5f).coerceAtLeast(0f)
+        val maxPanX = ((sourceWidth * fit * nextZoom - viewportWidth) * 0.5f).coerceAtLeast(0f)
+        val maxPanY = ((sourceHeight * fit * nextZoom - viewportHeight) * 0.5f).coerceAtLeast(0f)
 
         zoom = nextZoom
         pan = Offset(
@@ -173,21 +166,17 @@ fun LidarMapCanvas(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val canvasWidth = size.width.toFloat().coerceAtLeast(1f)
                         val canvasHeight = size.height.toFloat().coerceAtLeast(1f)
-                        val fit = containScale(
-                            viewportWidth = canvasWidth,
-                            viewportHeight = canvasHeight,
-                            sourceWidth = bitmap.width.toFloat(),
-                            sourceHeight = bitmap.height.toFloat(),
-                        )
+                        val fit = containScale(canvasWidth, canvasHeight, bitmap.width.toFloat(), bitmap.height.toFloat())
                         val imageWidth = bitmap.width * fit
                         val imageHeight = bitmap.height * fit
                         val imageLeft = (canvasWidth - imageWidth) * 0.5f
                         val imageTop = (canvasHeight - imageHeight) * 0.5f
 
                         fun report(offset: Offset) {
-                            val xPct = ((offset.x - imageLeft) / imageWidth * 100f).coerceIn(0f, 100f)
-                            val yPct = ((offset.y - imageTop) / imageHeight * 100f).coerceIn(0f, 100f)
-                            onSweepPositionChanged(xPct, yPct)
+                            onSweepPositionChanged(
+                                ((offset.x - imageLeft) / imageWidth * 100f).coerceIn(0f, 100f),
+                                ((offset.y - imageTop) / imageHeight * 100f).coerceIn(0f, 100f),
+                            )
                         }
 
                         report(down.position)
@@ -215,27 +204,15 @@ fun LidarMapCanvas(
             ) {
                 val canvasWidth = size.width.coerceAtLeast(1f)
                 val canvasHeight = size.height.coerceAtLeast(1f)
-                val fit = containScale(
-                    viewportWidth = canvasWidth,
-                    viewportHeight = canvasHeight,
-                    sourceWidth = imageBitmap.width.toFloat(),
-                    sourceHeight = imageBitmap.height.toFloat(),
-                )
+                val fit = containScale(canvasWidth, canvasHeight, imageBitmap.width.toFloat(), imageBitmap.height.toFloat())
                 val displayWidth = imageBitmap.width * fit * zoom
                 val displayHeight = imageBitmap.height * fit * zoom
                 val imageLeft = (canvasWidth - displayWidth) * 0.5f + pan.x
                 val imageTop = (canvasHeight - displayHeight) * 0.5f + pan.y
                 val destinationOffset = IntOffset(imageLeft.toInt(), imageTop.toInt())
-                val destinationSize = IntSize(
-                    width = displayWidth.toInt().coerceAtLeast(1),
-                    height = displayHeight.toInt().coerceAtLeast(1),
-                )
+                val destinationSize = IntSize(displayWidth.toInt().coerceAtLeast(1), displayHeight.toInt().coerceAtLeast(1))
 
-                drawImage(
-                    image = imageBitmap,
-                    dstOffset = destinationOffset,
-                    dstSize = destinationSize,
-                )
+                drawImage(imageBitmap, dstOffset = destinationOffset, dstSize = destinationSize)
                 if (showBasemap && basemapImageBitmap != null) {
                     drawImage(
                         image = basemapImageBitmap,
@@ -254,10 +231,7 @@ fun LidarMapCanvas(
                             if (intensity <= 0.03f) continue
                             drawRect(
                                 color = heatmapColor(intensity),
-                                topLeft = Offset(
-                                    x = imageLeft + col * cellWidth,
-                                    y = imageTop + row * cellHeight,
-                                ),
+                                topLeft = Offset(imageLeft + col * cellWidth, imageTop + row * cellHeight),
                                 size = Size(cellWidth, cellHeight),
                                 alpha = 0.18f + intensity * 0.5f,
                             )
@@ -268,33 +242,43 @@ fun LidarMapCanvas(
                 if (gridSpacing >= 1f) {
                     val cols = (100f / gridSpacing).toInt().coerceIn(1, 50)
                     val rows = (100f / gridSpacing).toInt().coerceIn(1, 50)
+                    val gridColor = Color(0xFFFF1E1E)
+                    val gridStroke = 2.5f
+                    val gridAlpha = 0.92f
+
                     for (i in 1 until cols) {
                         val px = imageLeft + (i * gridSpacing / 100f) * displayWidth
                         drawLine(
-                            color = Color(0xFF29B6F6),
+                            color = gridColor,
                             start = Offset(px, imageTop),
                             end = Offset(px, imageTop + displayHeight),
-                            strokeWidth = 1f,
-                            alpha = 0.35f,
+                            strokeWidth = gridStroke,
+                            alpha = gridAlpha,
                         )
                     }
                     for (i in 1 until rows) {
                         val py = imageTop + (i * gridSpacing / 100f) * displayHeight
                         drawLine(
-                            color = Color(0xFF29B6F6),
+                            color = gridColor,
                             start = Offset(imageLeft, py),
                             end = Offset(imageLeft + displayWidth, py),
-                            strokeWidth = 1f,
-                            alpha = 0.35f,
+                            strokeWidth = gridStroke,
+                            alpha = gridAlpha,
                         )
                     }
+                    drawRect(
+                        color = gridColor,
+                        topLeft = Offset(imageLeft, imageTop),
+                        size = Size(displayWidth, displayHeight),
+                        style = Stroke(width = 3f),
+                        alpha = 1f,
+                    )
                 }
 
                 loggedSignals.forEach { signal ->
                     val px = imageLeft + (signal.gridX.coerceIn(0f, 100f) / 100f) * displayWidth
                     val py = imageTop + (signal.gridY.coerceIn(0f, 100f) / 100f) * displayHeight
-                    val pinColor = runCatching { Color(signal.metalType.colorHex) }
-                        .getOrDefault(Color(0xFFFFD700))
+                    val pinColor = runCatching { Color(signal.metalType.colorHex) }.getOrDefault(Color(0xFFFFD700))
                     val marker = Offset(px, py)
                     drawCircle(color = pinColor, radius = 12f, center = marker, alpha = 0.5f)
                     drawCircle(color = Color.White, radius = 4f, center = marker)
@@ -305,45 +289,22 @@ fun LidarMapCanvas(
                     val sx = imageLeft + (sweepX.coerceIn(0f, 100f) / 100f) * displayWidth
                     val sy = imageTop + (sweepY.coerceIn(0f, 100f) / 100f) * displayHeight
                     val coil = Offset(sx, sy)
-                    drawCircle(
-                        color = Color(0xFFFFD700),
-                        radius = 36f,
-                        center = coil,
-                        style = Stroke(width = 1.5f),
-                        alpha = 0.35f,
-                    )
-                    drawCircle(
-                        color = Color(0xFFFFD700),
-                        radius = 24f,
-                        center = coil,
-                        style = Stroke(width = 3.5f),
-                        alpha = 0.85f,
-                    )
-                    drawLine(
-                        color = Color(0xFFFFD700),
-                        start = Offset(sx - 10f, sy),
-                        end = Offset(sx + 10f, sy),
-                        strokeWidth = 2f,
-                        alpha = 0.8f,
-                    )
-                    drawLine(
-                        color = Color(0xFFFFD700),
-                        start = Offset(sx, sy - 10f),
-                        end = Offset(sx, sy + 10f),
-                        strokeWidth = 2f,
-                        alpha = 0.8f,
-                    )
-                    drawCircle(color = Color.White, radius = 3f, center = coil)
+                    drawCircle(Color(0xFFFFD700), 36f, coil, alpha = 0.35f, style = Stroke(1.5f))
+                    drawCircle(Color(0xFFFFD700), 24f, coil, alpha = 0.85f, style = Stroke(3.5f))
+                    drawLine(Color(0xFFFFD700), Offset(sx - 10f, sy), Offset(sx + 10f, sy), 2f, alpha = 0.8f)
+                    drawLine(Color(0xFFFFD700), Offset(sx, sy - 10f), Offset(sx, sy + 10f), 2f, alpha = 0.8f)
+                    drawCircle(Color.White, 3f, coil)
                 }
 
                 deviceGridPosition?.let { devicePosition ->
                     if (devicePosition.first in 0f..100f && devicePosition.second in 0f..100f) {
-                        val dx = imageLeft + (devicePosition.first / 100f) * displayWidth
-                        val dy = imageTop + (devicePosition.second / 100f) * displayHeight
-                        val here = Offset(dx, dy)
-                        drawCircle(color = Color(0xFF2196F3), radius = 26f, center = here, alpha = 0.25f)
-                        drawCircle(color = Color(0xFF2196F3), radius = 10f, center = here)
-                        drawCircle(color = Color.White, radius = 10f, center = here, style = Stroke(width = 2.5f))
+                        val here = Offset(
+                            imageLeft + (devicePosition.first / 100f) * displayWidth,
+                            imageTop + (devicePosition.second / 100f) * displayHeight,
+                        )
+                        drawCircle(Color(0xFF2196F3), 26f, here, alpha = 0.25f)
+                        drawCircle(Color(0xFF2196F3), 10f, here)
+                        drawCircle(Color.White, 10f, here, style = Stroke(2.5f))
                     }
                 }
             }
@@ -403,12 +364,9 @@ fun LidarMapCanvas(
                         .padding(8.dp),
                 ) {
                     if (currentLat != null && currentLon != null) {
-                        val utm = runCatching {
-                            GeoSpatialLibrary.geographicToUtm(currentLat, currentLon)
-                        }.getOrNull()
+                        val utm = runCatching { GeoSpatialLibrary.geographicToUtm(currentLat, currentLon) }.getOrNull()
                         Text(
-                            text = "${GeoSpatialLibrary.formatDms(currentLat, true)}  ·  " +
-                                GeoSpatialLibrary.formatDms(currentLon, false),
+                            text = "${GeoSpatialLibrary.formatDms(currentLat, true)}  ·  ${GeoSpatialLibrary.formatDms(currentLon, false)}",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
@@ -416,9 +374,7 @@ fun LidarMapCanvas(
                         )
                         if (utm != null) {
                             Text(
-                                text = "UTM ${utm.zone}${utm.hemisphere}  " +
-                                    "E ${"%.1f".format(utm.easting)} m  " +
-                                    "N ${"%.1f".format(utm.northing)} m",
+                                text = "UTM ${utm.zone}${utm.hemisphere}  E ${"%.1f".format(utm.easting)} m  N ${"%.1f".format(utm.northing)} m",
                                 color = Color(0xFF64B5F6),
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
@@ -450,10 +406,7 @@ fun LidarMapCanvas(
                 )
             }
         } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = "No LiDAR data loaded.\nSelect a template below to render.",
                     color = Color.LightGray,
@@ -464,9 +417,7 @@ fun LidarMapCanvas(
 
         if (isRendering) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)),
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
