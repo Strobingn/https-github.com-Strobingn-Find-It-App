@@ -1,3 +1,34 @@
+import java.util.Properties
+
+fun parseDotEnv(file: File): Map<String, String> {
+  if (!file.isFile) return emptyMap()
+  return file.readLines().mapNotNull { rawLine ->
+    val line = rawLine.trim()
+    if (line.isBlank() || line.startsWith("#") || !line.contains('=')) return@mapNotNull null
+    val key = line.substringBefore('=').removePrefix("export ").trim()
+    val value = line.substringAfter('=').trim().removeSurrounding("\"").removeSurrounding("'")
+    key.takeIf { it.isNotBlank() }?.let { it to value }
+  }.toMap()
+}
+
+fun quotedBuildConfig(value: String): String =
+  "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+val localProperties = Properties().apply {
+  val file = rootProject.file("local.properties")
+  if (file.isFile) file.inputStream().use(::load)
+}
+val dotEnv = parseDotEnv(rootProject.file(".env"))
+fun projectSecret(name: String): String =
+  System.getenv(name)?.takeIf(String::isNotBlank)
+    ?: localProperties.getProperty(name)?.takeIf(String::isNotBlank)
+    ?: dotEnv[name]?.takeIf(String::isNotBlank)
+    ?: ""
+
+val geminiApiKey = projectSecret("GEMINI_API_KEY").ifBlank { projectSecret("GOOGLE_API_KEY") }
+val geminiModel = projectSecret("GEMINI_MODEL").ifBlank { "gemini-2.5-flash" }
+val mapsApiKey = projectSecret("MAPS_API_KEY")
+
 val releaseKeystorePath = System.getenv("KEYSTORE_PATH")
 val releaseKeystoreFile = releaseKeystorePath?.takeIf { it.isNotBlank() }?.let { file(it) }
 val releaseStorePassword = System.getenv("STORE_PASSWORD")
@@ -25,6 +56,11 @@ android {
     targetSdk = 36
     versionCode = 2
     versionName = "1.1"
+
+    buildConfigField("String", "GEMINI_API_KEY", quotedBuildConfig(geminiApiKey))
+    buildConfigField("String", "GEMINI_MODEL", quotedBuildConfig(geminiModel))
+    buildConfigField("String", "MAPS_API_KEY", quotedBuildConfig(mapsApiKey))
+    manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -103,6 +139,7 @@ dependencies {
   implementation(libs.laszip4j)
   implementation(libs.nga.tiff)
   implementation(libs.okhttp)
+  implementation(libs.play.services.maps)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
