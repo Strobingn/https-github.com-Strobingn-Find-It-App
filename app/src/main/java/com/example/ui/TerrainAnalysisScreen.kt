@@ -30,6 +30,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -47,11 +49,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.analysis.AnalysisPalette
+import com.example.analysis.TerrainAnalysisEngine
 import com.example.analysis.TerrainAnalysisLayer
+import com.example.analysis.TerrainAnalysisRenderer
 import com.example.analysis.TerrainAnalysisType
 import com.example.analysis.TerrainRenderOptions
 import com.example.data.ElevationGrid
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.roundToInt
+
 
 enum class AnalysisDisplayMode(val title: String) {
     TERRAIN("Terrain"),
@@ -63,8 +71,10 @@ private data class InspectedCell(
     val column: Int,
     val row: Int,
     val elevationMeters: Float,
-    val analysisValue: Float,
-    val valid: Boolean,
+    val primaryValue: Float,
+    val comparisonValue: Float?,
+    val primaryValid: Boolean,
+    val comparisonValid: Boolean,
     val localXMeters: Float,
     val localYMeters: Float,
 )
@@ -91,9 +101,49 @@ fun TerrainAnalysisScreen(
     val isExporting by analysisViewModel.isExporting.collectAsStateWithLifecycle()
     val aiInterpretation by analysisViewModel.aiInterpretation.collectAsStateWithLifecycle()
     val isAiRunning by analysisViewModel.isAiRunning.collectAsStateWithLifecycle()
-    val menuExpanded = remember { mutableStateOf(false) }
+
+    val primaryMenuExpanded = remember { mutableStateOf(false) }
+    val comparisonMenuExpanded = remember { mutableStateOf(false) }
     val displayMode = remember { mutableStateOf(AnalysisDisplayMode.BLENDED) }
-    val inspectedCell = remember(layer, grid) { mutableStateOf<InspectedCell?>(null) }
+    val comparisonEnabled = remember { mutableStateOf(false) }
+    val comparisonType = remember { mutableStateOf(TerrainAnalysisType.SLOPE) }
+    val comparisonLayer = remember { mutableStateOf<TerrainAnalysisLayer?>(null) }
+    val comparisonBitmap = remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val comparisonRunning = remember { mutableStateOf(false) }
+    val comparisonError = remember { mutableStateOf<String?>(null) }
+    val inspectedCell = remember(layer, comparisonLayer.value, grid) { mutableStateOf<InspectedCell?>(null) }
+
+    LaunchedEffect(comparisonEnabled.value, comparisonType.value, grid, options, renderOptions) {
+        if (!comparisonEnabled.value) {
+            comparisonLayer.value = null
+            comparisonBitmap.value = null
+            comparisonError.value = null
+            comparisonRunning.value = false
+            return@LaunchedEffect
+        }
+        comparisonRunning.value = true
+        comparisonError.value = null
+        try {
+            val result = withContext(Dispatchers.Default) {
+                TerrainAnalysisEngine.analyze(
+                    grid,
+                    comparisonType.value,
+                    options.normalized(grid.cellSizeMeters),
+                )
+            }
+            val rendered = withContext(Dispatchers.Default) {
+                TerrainAnalysisRenderer.render(result, renderOptions.sanitized())
+            }
+            comparisonLayer.value = result
+            comparisonBitmap.value = rendered
+        } catch (error: Exception) {
+            comparisonLayer.value = null
+            comparisonBitmap.value = null
+            comparisonError.value = error.message ?: "Comparison analysis failed."
+        } finally {
+            comparisonRunning.value = false
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -108,14 +158,14 @@ fun TerrainAnalysisScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Phase 3 · Terrain Analysis",
+                    "Phase 4 · Professional Analysis",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "Validated calculations, professional rendering, overlays, and cell inspection",
+                    "Synchronized layer comparison, precise inspection, and per-cell differences",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -132,29 +182,18 @@ fun TerrainAnalysisScreen(
             fontFamily = FontFamily.Monospace,
         )
 
-        Column {
-            OutlinedButton(onClick = { menuExpanded.value = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(selectedType.title)
-            }
-            DropdownMenu(expanded = menuExpanded.value, onDismissRequest = { menuExpanded.value = false }) {
-                TerrainAnalysisType.phaseOneEntries.forEach { type ->
-                    DropdownMenuItem(
-                        text = {
-                            Column {
-                                Text(type.title, fontWeight = FontWeight.SemiBold)
-                                Text(type.description, style = MaterialTheme.typography.bodySmall)
-                            }
-                        },
-                        onClick = {
-                            analysisViewModel.selectType(type)
-                            analysisViewModel.runAnalysis(grid)
-                            inspectedCell.value = null
-                            menuExpanded.value = false
-                        },
-                    )
-                }
-            }
-        }
+        LayerSelector(
+            title = "Primary layer",
+            selected = selectedType,
+            expanded = primaryMenuExpanded.value,
+            onExpandedChanged = { primaryMenuExpanded.value = it },
+            onSelected = { type ->
+                analysisViewModel.selectType(type)
+                analysisViewModel.runAnalysis(grid)
+                inspectedCell.value = null
+                primaryMenuExpanded.value = false
+            },
+        )
 
         Text(selectedType.description, style = MaterialTheme.typography.bodyMedium)
 
@@ -179,6 +218,55 @@ fun TerrainAnalysisScreen(
             onInvertedChanged = analysisViewModel::setAnalysisPaletteInverted,
         )
 
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Phase 4 layer comparison", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Tap either view to inspect the same cell in both layers.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = comparisonEnabled.value,
+                        onCheckedChange = {
+                            comparisonEnabled.value = it
+                            inspectedCell.value = null
+                        },
+                    )
+                }
+                if (comparisonEnabled.value) {
+                    LayerSelector(
+                        title = "Comparison layer",
+                        selected = comparisonType.value,
+                        expanded = comparisonMenuExpanded.value,
+                        onExpandedChanged = { comparisonMenuExpanded.value = it },
+                        onSelected = { type ->
+                            comparisonType.value = type
+                            comparisonMenuExpanded.value = false
+                            inspectedCell.value = null
+                        },
+                    )
+                    if (comparisonRunning.value) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.padding(end = 10.dp), strokeWidth = 2.dp)
+                            Text("Calculating ${comparisonType.value.title}…")
+                        }
+                    }
+                    comparisonError.value?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        }
+
         if (isRunning) {
             OutlinedButton(onClick = analysisViewModel::cancelAnalysis, modifier = Modifier.fillMaxWidth()) {
                 CircularProgressIndicator(modifier = Modifier.padding(end = 10.dp), strokeWidth = 2.dp)
@@ -201,139 +289,63 @@ fun TerrainAnalysisScreen(
             Text("Cached result · no recalculation required", color = MaterialTheme.colorScheme.primary)
         }
 
-        bitmap?.let { analysisBitmap ->
-            val activeLayer = layer
-            val previewWidth = when (displayMode.value) {
-                AnalysisDisplayMode.TERRAIN -> terrainBitmap.safeWidth
-                else -> analysisBitmap.width.coerceAtLeast(1)
-            }
-            val previewHeight = when (displayMode.value) {
-                AnalysisDisplayMode.TERRAIN -> terrainBitmap.safeHeight
-                else -> analysisBitmap.height.coerceAtLeast(1)
-            }
-
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-                Column {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(previewWidth.toFloat() / previewHeight)
-                            .pointerInput(activeLayer, grid) {
-                                detectTapGestures { tap ->
-                                    val result = activeLayer ?: return@detectTapGestures
-                                    val widthPx = size.width.toFloat().coerceAtLeast(1f)
-                                    val heightPx = size.height.toFloat().coerceAtLeast(1f)
-                                    val column = ((tap.x / widthPx) * result.width)
-                                        .toInt().coerceIn(0, result.width - 1)
-                                    val row = ((tap.y / heightPx) * result.height)
-                                        .toInt().coerceIn(0, result.height - 1)
-                                    val index = row * result.width + column
-                                    val gridColumn = ((column.toFloat() / result.width) * grid.width)
-                                        .toInt().coerceIn(0, grid.width - 1)
-                                    val gridRow = ((row.toFloat() / result.height) * grid.height)
-                                        .toInt().coerceIn(0, grid.height - 1)
-                                    val gridIndex = gridRow * grid.width + gridColumn
-                                    inspectedCell.value = InspectedCell(
-                                        column = column,
-                                        row = row,
-                                        elevationMeters = grid.bareEarth[gridIndex],
-                                        analysisValue = result.values[index],
-                                        valid = result.validData[index] && grid.validData[gridIndex],
-                                        localXMeters = (gridColumn + 0.5f) * grid.cellSizeMeters,
-                                        localYMeters = (gridRow + 0.5f) * grid.cellSizeMeters,
-                                    )
-                                }
-                            },
-                    ) {
-                        if (displayMode.value != AnalysisDisplayMode.ANALYSIS) {
-                            Image(
-                                bitmap = terrainBitmap.safeAsImageBitmap(),
-                                contentDescription = "Terrain hillshade",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
-                            )
-                        }
-                        if (displayMode.value != AnalysisDisplayMode.TERRAIN) {
-                            Image(
-                                bitmap = analysisBitmap.asImageBitmap(),
-                                contentDescription = "${selectedType.title} result",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
-                            )
-                        }
-                        inspectedCell.value?.let { selected ->
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                val center = Offset(
-                                    x = ((selected.column + 0.5f) / previewWidth) * size.width,
-                                    y = ((selected.row + 0.5f) / previewHeight) * size.height,
-                                )
-                                drawCircle(Color.Black, radius = 15f, center = center, style = Stroke(6f))
-                                drawCircle(Color.White, radius = 15f, center = center, style = Stroke(3f))
-                                drawLine(
-                                    Color.Black,
-                                    Offset(center.x - 24f, center.y),
-                                    Offset(center.x + 24f, center.y),
-                                    strokeWidth = 6f,
-                                )
-                                drawLine(
-                                    Color.White,
-                                    Offset(center.x - 24f, center.y),
-                                    Offset(center.x + 24f, center.y),
-                                    strokeWidth = 2.5f,
-                                )
-                                drawLine(
-                                    Color.Black,
-                                    Offset(center.x, center.y - 24f),
-                                    Offset(center.x, center.y + 24f),
-                                    strokeWidth = 6f,
-                                )
-                                drawLine(
-                                    Color.White,
-                                    Offset(center.x, center.y - 24f),
-                                    Offset(center.x, center.y + 24f),
-                                    strokeWidth = 2.5f,
-                                )
-                            }
-                        }
-                    }
-                    if (displayMode.value != AnalysisDisplayMode.TERRAIN) {
-                        AnalysisLegend(selectedType, renderOptions)
-                    } else {
-                        Text(
-                            "Original terrain hillshade",
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                    Text(
-                        "Tap the preview to inspect elevation and analysis values.",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        bitmap?.let { primaryBitmap ->
+            val primaryLayer = layer
+            AnalysisPreview(
+                title = "Primary · ${selectedType.title}",
+                terrainBitmap = terrainBitmap.safeAsImageBitmap(),
+                analysisBitmap = primaryBitmap.asImageBitmap(),
+                displayMode = displayMode.value,
+                layer = primaryLayer,
+                grid = grid,
+                inspected = inspectedCell.value,
+                onCellSelected = { column, row ->
+                    inspectedCell.value = inspectCell(
+                        column = column,
+                        row = row,
+                        primaryLayer = primaryLayer,
+                        comparisonLayer = comparisonLayer.value,
+                        grid = grid,
                     )
-                }
+                },
+            )
+            AnalysisLegend(selectedType, renderOptions)
+        }
+
+        if (comparisonEnabled.value) {
+            comparisonBitmap.value?.let { secondaryBitmap ->
+                AnalysisPreview(
+                    title = "Comparison · ${comparisonType.value.title}",
+                    terrainBitmap = terrainBitmap.safeAsImageBitmap(),
+                    analysisBitmap = secondaryBitmap.asImageBitmap(),
+                    displayMode = displayMode.value,
+                    layer = comparisonLayer.value,
+                    grid = grid,
+                    inspected = inspectedCell.value,
+                    onCellSelected = { column, row ->
+                        inspectedCell.value = inspectCell(
+                            column = column,
+                            row = row,
+                            primaryLayer = layer,
+                            comparisonLayer = comparisonLayer.value,
+                            grid = grid,
+                        )
+                    },
+                )
+                AnalysisLegend(comparisonType.value, renderOptions)
             }
         }
 
         inspectedCell.value?.let { inspected ->
-            InspectionCard(inspected, layer)
+            InspectionCard(
+                inspected = inspected,
+                primaryLayer = layer,
+                comparisonLayer = comparisonLayer.value,
+            )
         }
 
         layer?.let { result ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Layer statistics", fontWeight = FontWeight.Bold)
-                    Text("Valid cells: ${result.validCellCount} (${format(result.coveragePercent)}%)")
-                    Text("Minimum: ${format(result.minimum)} ${result.type.unit}")
-                    Text("Mean: ${format(result.mean)} ${result.type.unit}")
-                    Text("Standard deviation: ${format(result.standardDeviation)} ${result.type.unit}")
-                    Text("95th percentile: ${format(result.percentile95)} ${result.type.unit}")
-                    Text("Maximum: ${format(result.maximum)} ${result.type.unit}")
-                    HorizontalDivider()
-                    Text(result.summary)
-                }
-            }
-
+            LayerStatisticsCard("Primary statistics", result)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = analysisViewModel::exportCurrentPng,
@@ -354,6 +366,10 @@ fun TerrainAnalysisScreen(
             }
         }
 
+        if (comparisonEnabled.value) {
+            comparisonLayer.value?.let { LayerStatisticsCard("Comparison statistics", it) }
+        }
+
         exportStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         aiInterpretation?.let {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -367,31 +383,214 @@ fun TerrainAnalysisScreen(
 }
 
 @Composable
-private fun InspectionCard(inspected: InspectedCell, layer: TerrainAnalysisLayer?) {
+private fun LayerSelector(
+    title: String,
+    selected: TerrainAnalysisType,
+    expanded: Boolean,
+    onExpandedChanged: (Boolean) -> Unit,
+    onSelected: (TerrainAnalysisType) -> Unit,
+) {
+    Column {
+        Text(title, style = MaterialTheme.typography.labelMedium)
+        OutlinedButton(onClick = { onExpandedChanged(true) }, modifier = Modifier.fillMaxWidth()) {
+            Text(selected.title)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChanged(false) }) {
+            TerrainAnalysisType.phaseOneEntries.forEach { type ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(type.title, fontWeight = FontWeight.SemiBold)
+                            Text(type.description, style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    onClick = { onSelected(type) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnalysisPreview(
+    title: String,
+    terrainBitmap: ImageBitmap,
+    analysisBitmap: ImageBitmap,
+    displayMode: AnalysisDisplayMode,
+    layer: TerrainAnalysisLayer?,
+    grid: ElevationGrid,
+    inspected: InspectedCell?,
+    onCellSelected: (Int, Int) -> Unit,
+) {
+    val width = layer?.width ?: analysisBitmap.width.coerceAtLeast(1)
+    val height = layer?.height ?: analysisBitmap.height.coerceAtLeast(1)
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+        Column {
+            Text(title, modifier = Modifier.padding(12.dp), fontWeight = FontWeight.Bold)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(width.toFloat() / height.coerceAtLeast(1))
+                    .pointerInput(layer, grid) {
+                        detectTapGestures { tap ->
+                            val active = layer ?: return@detectTapGestures
+                            val column = ((tap.x / size.width.coerceAtLeast(1)) * active.width)
+                                .toInt().coerceIn(0, active.width - 1)
+                            val row = ((tap.y / size.height.coerceAtLeast(1)) * active.height)
+                                .toInt().coerceIn(0, active.height - 1)
+                            onCellSelected(column, row)
+                        }
+                    },
+            ) {
+                if (displayMode != AnalysisDisplayMode.ANALYSIS) {
+                    Image(
+                        bitmap = terrainBitmap,
+                        contentDescription = "Terrain hillshade",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                if (displayMode != AnalysisDisplayMode.TERRAIN) {
+                    Image(
+                        bitmap = analysisBitmap,
+                        contentDescription = "$title analysis",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                inspected?.let { selected ->
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val center = Offset(
+                            x = ((selected.column + 0.5f) / width) * size.width,
+                            y = ((selected.row + 0.5f) / height) * size.height,
+                        )
+                        drawCircle(Color.Black, 15f, center, style = Stroke(6f))
+                        drawCircle(Color.White, 15f, center, style = Stroke(3f))
+                        drawLine(Color.Black, Offset(center.x - 24f, center.y), Offset(center.x + 24f, center.y), 6f)
+                        drawLine(Color.White, Offset(center.x - 24f, center.y), Offset(center.x + 24f, center.y), 2.5f)
+                        drawLine(Color.Black, Offset(center.x, center.y - 24f), Offset(center.x, center.y + 24f), 6f)
+                        drawLine(Color.White, Offset(center.x, center.y - 24f), Offset(center.x, center.y + 24f), 2.5f)
+                    }
+                }
+            }
+            Text(
+                "Synchronized tap inspection",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun inspectCell(
+    column: Int,
+    row: Int,
+    primaryLayer: TerrainAnalysisLayer?,
+    comparisonLayer: TerrainAnalysisLayer?,
+    grid: ElevationGrid,
+): InspectedCell? {
+    val primary = primaryLayer ?: return null
+    val safeColumn = column.coerceIn(0, primary.width - 1)
+    val safeRow = row.coerceIn(0, primary.height - 1)
+    val primaryIndex = safeRow * primary.width + safeColumn
+    val gridColumn = ((safeColumn.toFloat() / primary.width) * grid.width).toInt().coerceIn(0, grid.width - 1)
+    val gridRow = ((safeRow.toFloat() / primary.height) * grid.height).toInt().coerceIn(0, grid.height - 1)
+    val gridIndex = gridRow * grid.width + gridColumn
+
+    val comparisonValue = comparisonLayer?.let { second ->
+        val secondColumn = ((safeColumn.toFloat() / primary.width) * second.width).toInt().coerceIn(0, second.width - 1)
+        val secondRow = ((safeRow.toFloat() / primary.height) * second.height).toInt().coerceIn(0, second.height - 1)
+        second.values[secondRow * second.width + secondColumn]
+    }
+    val comparisonValid = comparisonLayer?.let { second ->
+        val secondColumn = ((safeColumn.toFloat() / primary.width) * second.width).toInt().coerceIn(0, second.width - 1)
+        val secondRow = ((safeRow.toFloat() / primary.height) * second.height).toInt().coerceIn(0, second.height - 1)
+        second.validData[secondRow * second.width + secondColumn]
+    } ?: false
+
+    return InspectedCell(
+        column = safeColumn,
+        row = safeRow,
+        elevationMeters = grid.bareEarth[gridIndex],
+        primaryValue = primary.values[primaryIndex],
+        comparisonValue = comparisonValue,
+        primaryValid = primary.validData[primaryIndex] && grid.validData[gridIndex],
+        comparisonValid = comparisonValid && grid.validData[gridIndex],
+        localXMeters = (gridColumn + 0.5f) * grid.cellSizeMeters,
+        localYMeters = (gridRow + 0.5f) * grid.cellSizeMeters,
+    )
+}
+
+@Composable
+private fun InspectionCard(
+    inspected: InspectedCell,
+    primaryLayer: TerrainAnalysisLayer?,
+    comparisonLayer: TerrainAnalysisLayer?,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text("Selected terrain cell", fontWeight = FontWeight.Bold)
-            Text(
-                "Column ${inspected.column} · row ${inspected.row}",
-                fontFamily = FontFamily.Monospace,
-            )
+            Text("Column ${inspected.column} · row ${inspected.row}", fontFamily = FontFamily.Monospace)
             Text(
                 "Local X ${format(inspected.localXMeters)} m · Y ${format(inspected.localYMeters)} m",
                 fontFamily = FontFamily.Monospace,
             )
-            if (inspected.valid) {
-                Text("Elevation: ${format(inspected.elevationMeters)} m")
-                Text("${layer?.type?.title ?: "Analysis"}: ${format(inspected.analysisValue)} ${layer?.type?.unit.orEmpty()}")
-                layer?.let { result ->
-                    val deviation = inspected.analysisValue - result.mean
-                    Text(
-                        "Difference from layer mean: ${if (deviation >= 0f) "+" else ""}${format(deviation)} ${result.type.unit}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                Text("NoData cell · no valid terrain return", color = MaterialTheme.colorScheme.error)
+            if (!inspected.primaryValid) {
+                Text("Primary NoData cell", color = MaterialTheme.colorScheme.error)
+                return@Column
             }
+            Text("Elevation: ${format(inspected.elevationMeters)} m")
+            primaryLayer?.let {
+                Text("${it.type.title}: ${format(inspected.primaryValue)} ${it.type.unit}")
+            }
+            if (comparisonLayer != null && inspected.comparisonValue != null) {
+                if (inspected.comparisonValid) {
+                    Text("${comparisonLayer.type.title}: ${format(inspected.comparisonValue)} ${comparisonLayer.type.unit}")
+                    val primary = primaryLayer
+                    if (primary != null) {
+                        val primaryZ = standardized(inspected.primaryValue, primary)
+                        val comparisonZ = standardized(inspected.comparisonValue, comparisonLayer)
+                        val difference = comparisonZ - primaryZ
+                        Text(
+                            "Standardized difference (comparison − primary): ${if (difference >= 0f) "+" else ""}${format(difference)} σ",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (primary.type.unit == comparisonLayer.type.unit) {
+                            val rawDifference = inspected.comparisonValue - inspected.primaryValue
+                            Text(
+                                "Raw difference: ${if (rawDifference >= 0f) "+" else ""}${format(rawDifference)} ${primary.type.unit}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                } else {
+                    Text("Comparison NoData cell", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+private fun standardized(value: Float, layer: TerrainAnalysisLayer): Float {
+    val standardDeviation = layer.standardDeviation
+    return if (standardDeviation <= 0.000001f) 0f else (value - layer.mean) / standardDeviation
+}
+
+@Composable
+private fun LayerStatisticsCard(title: String, result: TerrainAnalysisLayer) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, fontWeight = FontWeight.Bold)
+            Text("${result.type.title} · ${result.validCellCount} valid cells (${format(result.coveragePercent)}%)")
+            Text("Minimum: ${format(result.minimum)} ${result.type.unit}")
+            Text("Mean: ${format(result.mean)} ${result.type.unit}")
+            Text("Standard deviation: ${format(result.standardDeviation)} ${result.type.unit}")
+            Text("95th percentile: ${format(result.percentile95)} ${result.type.unit}")
+            Text("Maximum: ${format(result.maximum)} ${result.type.unit}")
+            HorizontalDivider()
+            Text(result.summary)
         }
     }
 }
@@ -473,10 +672,6 @@ private fun AnalysisVisualizationControls(
                 }
                 Switch(checked = options.inverted, onCheckedChange = onInvertedChanged)
             }
-            Text(
-                "Blended mode places the analysis over the original hillshade. Rendering controls do not recalculate terrain.",
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
     }
 }
@@ -495,7 +690,7 @@ private fun AnalysisLegend(type: TerrainAnalysisType, options: TerrainRenderOpti
         type == TerrainAnalysisType.NEGATIVE_OPENNESS -> "Open  ←  enclosed pits / ditches  →  strong"
         else -> "Low  ←  ${type.unit}  →  high"
     }
-    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -503,10 +698,6 @@ private fun AnalysisLegend(type: TerrainAnalysisType, options: TerrainRenderOpti
                 .background(Brush.horizontalGradient(if (options.inverted) colors.reversed() else colors), RoundedCornerShape(7.dp)),
         )
         Text(if (options.inverted) "$labels · inverted" else labels, fontFamily = FontFamily.Monospace)
-        Text(
-            "Brightness ${"%.2f".format(options.brightness)}× · opacity ${(options.opacity * 100f).roundToInt()}%",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
 
@@ -556,7 +747,7 @@ private fun SliderControl(
 }
 
 private fun format(value: Float): String = when {
-    kotlin.math.abs(value) >= 1000f -> "%.0f".format(value)
-    kotlin.math.abs(value) >= 10f -> "%.2f".format(value)
+    abs(value) >= 1000f -> "%.0f".format(value)
+    abs(value) >= 10f -> "%.2f".format(value)
     else -> "%.4f".format(value)
 }
