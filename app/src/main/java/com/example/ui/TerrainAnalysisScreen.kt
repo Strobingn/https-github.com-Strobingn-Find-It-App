@@ -21,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,7 +36,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.analysis.AnalysisPalette
 import com.example.analysis.TerrainAnalysisType
+import com.example.analysis.TerrainRenderOptions
 import kotlin.math.roundToInt
 
 @Composable
@@ -48,6 +51,7 @@ fun TerrainAnalysisScreen(
     val terrainSummary by terrainViewModel.activeTerrainSummary.collectAsStateWithLifecycle()
     val selectedType by analysisViewModel.selectedType.collectAsStateWithLifecycle()
     val options by analysisViewModel.options.collectAsStateWithLifecycle()
+    val renderOptions by analysisViewModel.renderOptions.collectAsStateWithLifecycle()
     val layer by analysisViewModel.layer.collectAsStateWithLifecycle()
     val bitmap by analysisViewModel.bitmap.collectAsStateWithLifecycle()
     val isRunning by analysisViewModel.isRunning.collectAsStateWithLifecycle()
@@ -75,20 +79,18 @@ fun TerrainAnalysisScreen(
         ) {
             Column {
                 Text(
-                    text = "Phase 1 · Terrain Analysis",
+                    text = "Phase 3 · Terrain Analysis",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "${TerrainAnalysisType.phaseOneEntries.size} core LiDAR products",
+                    text = "Validated calculations and professional rendering",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (cacheEntryCount > 0) {
-                TextButton(onClick = analysisViewModel::clearCache) {
-                    Text("Clear ($cacheEntryCount)")
-                }
+                TextButton(onClick = analysisViewModel::clearCache) { Text("Clear ($cacheEntryCount)") }
             }
         }
 
@@ -148,15 +150,19 @@ fun TerrainAnalysisScreen(
             onDirectionCountChanged = analysisViewModel::updateDirectionCount,
         )
 
+        AnalysisVisualizationControls(
+            options = renderOptions,
+            onPaletteChanged = analysisViewModel::updateAnalysisPalette,
+            onContrastChanged = analysisViewModel::updateAnalysisContrast,
+            onInvertedChanged = analysisViewModel::setAnalysisPaletteInverted,
+        )
+
         if (isRunning) {
             OutlinedButton(
                 onClick = analysisViewModel::cancelAnalysis,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.padding(end = 10.dp),
-                    strokeWidth = 2.dp,
-                )
+                CircularProgressIndicator(modifier = Modifier.padding(end = 10.dp), strokeWidth = 2.dp)
                 Text("Cancel ${selectedType.title}")
             }
         } else {
@@ -195,7 +201,7 @@ fun TerrainAnalysisScreen(
                             .aspectRatio(rendered.width.toFloat() / rendered.height.coerceAtLeast(1)),
                         contentScale = ContentScale.Fit,
                     )
-                    AnalysisLegend(selectedType)
+                    AnalysisLegend(selectedType, renderOptions)
                 }
             }
         }
@@ -228,10 +234,7 @@ fun TerrainAnalysisScreen(
                     modifier = Modifier.weight(1f),
                 ) {
                     if (isExporting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.padding(end = 8.dp),
-                            strokeWidth = 2.dp,
-                        )
+                        CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
                     }
                     Text(if (isExporting) "Saving…" else "Save PNG")
                 }
@@ -241,10 +244,7 @@ fun TerrainAnalysisScreen(
                     modifier = Modifier.weight(1f),
                 ) {
                     if (isAiRunning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.padding(end = 8.dp),
-                            strokeWidth = 2.dp,
-                        )
+                        CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
                     }
                     Text(if (isAiRunning) "Analyzing…" else "ChatGPT")
                 }
@@ -318,7 +318,7 @@ private fun AnalysisParameterControls(
                 )
             }
             Text(
-                text = "Tap Run after changing a parameter.",
+                text = "Tap Run after changing an analysis parameter.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -327,15 +327,85 @@ private fun AnalysisParameterControls(
 }
 
 @Composable
-private fun AnalysisLegend(type: TerrainAnalysisType) {
+private fun AnalysisVisualizationControls(
+    options: TerrainRenderOptions,
+    onPaletteChanged: (AnalysisPalette) -> Unit,
+    onContrastChanged: (Float) -> Unit,
+    onInvertedChanged: (Boolean) -> Unit,
+) {
+    val paletteMenuExpanded = remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Visualization", fontWeight = FontWeight.Bold)
+            Column {
+                Text("Palette", style = MaterialTheme.typography.labelMedium)
+                OutlinedButton(
+                    onClick = { paletteMenuExpanded.value = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(options.palette.title)
+                }
+                DropdownMenu(
+                    expanded = paletteMenuExpanded.value,
+                    onDismissRequest = { paletteMenuExpanded.value = false },
+                ) {
+                    AnalysisPalette.entries.forEach { palette ->
+                        DropdownMenuItem(
+                            text = { Text(palette.title) },
+                            onClick = {
+                                onPaletteChanged(palette)
+                                paletteMenuExpanded.value = false
+                            },
+                        )
+                    }
+                }
+            }
+            SliderControl(
+                title = "Contrast",
+                valueLabel = "${"%.1f".format(options.contrast)}×",
+                value = options.contrast,
+                valueRange = 0.5f..3f,
+                onValueChange = onContrastChanged,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Invert palette")
+                    Text(
+                        "Changes colors only; terrain values are unchanged.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = options.inverted, onCheckedChange = onInvertedChanged)
+            }
+            Text(
+                text = "Palette changes rerender instantly without recalculating the analysis.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AnalysisLegend(type: TerrainAnalysisType, options: TerrainRenderOptions) {
     val labels = when {
+        options.palette == AnalysisPalette.GRAYSCALE -> "Dark  ←  ${type.unit}  →  light"
         type == TerrainAnalysisType.ASPECT -> "N · E · S · W · flat cells shown neutral"
-        type.diverging -> "Negative / concave  ←  neutral  →  positive / convex"
+        type == TerrainAnalysisType.CURVATURE -> "Convex / raised  ←  neutral  →  concave / depressed"
+        type.diverging -> "Negative  ←  neutral  →  positive"
         type == TerrainAnalysisType.MULTI_HILLSHADE -> "Shadow  ←  illumination  →  bright"
         else -> "Low  ←  ${type.unit}  →  high"
     }
     Text(
-        text = labels,
+        text = if (options.inverted) "$labels · inverted" else labels,
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
         style = MaterialTheme.typography.labelMedium,
         fontFamily = FontFamily.Monospace,
