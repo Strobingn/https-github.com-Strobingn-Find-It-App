@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
@@ -42,11 +45,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.NormalizedRasterBounds
 import com.example.data.TargetSignal
+import com.example.data.TerrainPerformanceSession
 import com.example.data.computeDigPriorityHeatmap
 import com.example.geospatial.GeoSpatialLibrary
-import androidx.compose.ui.graphics.lerp
 
 enum class LidarCanvasMode { SURVEY, EXPLORE }
 
@@ -76,7 +80,7 @@ fun LidarMapCanvas(
     deviceGridPosition: Pair<Float, Float>? = null,
     modifier: Modifier = Modifier,
 ) {
-    // Cache ImageBitmap — recreating every drag frame can crash if Bitmap is mid-render
+    // Cache ImageBitmap — recreating every drag frame can crash if Bitmap is mid-render.
     val imageBitmap = remember(bitmap) {
         try {
             bitmap?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 }?.asImageBitmap()
@@ -94,17 +98,23 @@ fun LidarMapCanvas(
     val heatmapCells = remember(loggedSignals, showHeatmap) {
         if (showHeatmap) computeDigPriorityHeatmap(loggedSignals, HEATMAP_BINS) else null
     }
-    
-    // Initialize zoom and pan from the ViewModel or use defaults
+    val gpuScene by TerrainPerformanceSession.gpuScene.collectAsStateWithLifecycle()
+    var useGpuTerrain by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(gpuScene) {
+        if (gpuScene == null) useGpuTerrain = false
+    }
+
+    // Initialize zoom and pan from the ViewModel or use defaults.
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
-    
+
     LaunchedEffect(viewportResetKey, mode) {
         zoom = 1f
         pan = Offset.Zero
     }
-    
+
     LaunchedEffect(zoom, pan, viewportSize, imageBitmap) {
         val image = imageBitmap ?: return@LaunchedEffect
         val viewportWidth = viewportSize.width.toFloat().coerceAtLeast(1f)
@@ -122,7 +132,7 @@ fun LidarMapCanvas(
         ).sanitized()
         onViewportChanged(bounds, zoom)
     }
-    
+
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         if (mode == LidarCanvasMode.EXPLORE) {
             val nextZoom = (zoom * zoomChange).coerceIn(1f, 32f)
@@ -140,7 +150,7 @@ fun LidarMapCanvas(
             )
         }
     }
-    
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -148,7 +158,27 @@ fun LidarMapCanvas(
             .shadow(4.dp, RoundedCornerShape(16.dp))
             .testTag("lidar_map_canvas_container"),
     ) {
-        if (imageBitmap != null && bitmap != null) {
+        val activeGpuScene = gpuScene
+        if (useGpuTerrain && activeGpuScene != null) {
+            GpuTerrainSurface(
+                scene = activeGpuScene,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("gpu_terrain_surface"),
+            )
+            Text(
+                text = "GPU 3D · drag to rotate · pinch for LOD · double-tap to reset",
+                color = Color.White,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(10.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xC0000000))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+            )
+        } else if (imageBitmap != null && bitmap != null) {
             val interactionModifier = if (mode == LidarCanvasMode.EXPLORE) {
                 Modifier.transformable(transformState)
             } else {
@@ -227,7 +257,7 @@ fun LidarMapCanvas(
                         }
                     }
                 }
-                // Search grid (avoid huge loops if spacing tiny)
+                // Search grid (avoid huge loops if spacing tiny).
                 if (gridSpacing >= 1f) {
                     val cols = (100f / gridSpacing).toInt().coerceIn(1, 50)
                     val rows = (100f / gridSpacing).toInt().coerceIn(1, 50)
@@ -412,7 +442,20 @@ fun LidarMapCanvas(
                 )
             }
         }
-        if (isRendering) {
+
+        if (activeGpuScene != null) {
+            OutlinedButton(
+                onClick = { useGpuTerrain = !useGpuTerrain },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .testTag("toggle_gpu_terrain_button"),
+            ) {
+                Text(if (useGpuTerrain) "2D analysis" else "GPU 3D")
+            }
+        }
+
+        if (isRendering && !useGpuTerrain) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
