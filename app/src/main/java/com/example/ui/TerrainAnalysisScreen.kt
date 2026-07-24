@@ -1,13 +1,16 @@
 package com.example.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +33,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
@@ -109,9 +114,7 @@ fun TerrainAnalysisScreen(
             OutlinedButton(
                 onClick = { menuExpanded.value = true },
                 modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(selectedType.title)
-            }
+            ) { Text(selectedType.title) }
             DropdownMenu(
                 expanded = menuExpanded.value,
                 onDismissRequest = { menuExpanded.value = false },
@@ -154,6 +157,8 @@ fun TerrainAnalysisScreen(
             options = renderOptions,
             onPaletteChanged = analysisViewModel::updateAnalysisPalette,
             onContrastChanged = analysisViewModel::updateAnalysisContrast,
+            onBrightnessChanged = analysisViewModel::updateAnalysisBrightness,
+            onOpacityChanged = analysisViewModel::updateAnalysisOpacity,
             onInvertedChanged = analysisViewModel::setAnalysisPaletteInverted,
         )
 
@@ -169,9 +174,7 @@ fun TerrainAnalysisScreen(
             Button(
                 onClick = { analysisViewModel.runAnalysis(grid) },
                 modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Run ${selectedType.title}")
-            }
+            ) { Text("Run ${selectedType.title}") }
         }
 
         Text(
@@ -331,6 +334,8 @@ private fun AnalysisVisualizationControls(
     options: TerrainRenderOptions,
     onPaletteChanged: (AnalysisPalette) -> Unit,
     onContrastChanged: (Float) -> Unit,
+    onBrightnessChanged: (Float) -> Unit,
+    onOpacityChanged: (Float) -> Unit,
     onInvertedChanged: (Boolean) -> Unit,
 ) {
     val paletteMenuExpanded = remember { mutableStateOf(false) }
@@ -345,9 +350,7 @@ private fun AnalysisVisualizationControls(
                 OutlinedButton(
                     onClick = { paletteMenuExpanded.value = true },
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(options.palette.title)
-                }
+                ) { Text(options.palette.title) }
                 DropdownMenu(
                     expanded = paletteMenuExpanded.value,
                     onDismissRequest = { paletteMenuExpanded.value = false },
@@ -370,6 +373,20 @@ private fun AnalysisVisualizationControls(
                 valueRange = 0.5f..3f,
                 onValueChange = onContrastChanged,
             )
+            SliderControl(
+                title = "Brightness",
+                valueLabel = "${"%.2f".format(options.brightness)}×",
+                value = options.brightness,
+                valueRange = 0.5f..1.75f,
+                onValueChange = onBrightnessChanged,
+            )
+            SliderControl(
+                title = "Opacity",
+                valueLabel = "${(options.opacity * 100f).roundToInt()}%",
+                value = options.opacity,
+                valueRange = 0.1f..1f,
+                onValueChange = onOpacityChanged,
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -386,7 +403,7 @@ private fun AnalysisVisualizationControls(
                 Switch(checked = options.inverted, onCheckedChange = onInvertedChanged)
             }
             Text(
-                text = "Palette changes rerender instantly without recalculating the analysis.",
+                text = "Palette, contrast, brightness, and opacity rerender instantly without recalculating terrain.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -396,21 +413,73 @@ private fun AnalysisVisualizationControls(
 
 @Composable
 private fun AnalysisLegend(type: TerrainAnalysisType, options: TerrainRenderOptions) {
+    val colors = legendColors(type, options)
     val labels = when {
         options.palette == AnalysisPalette.GRAYSCALE -> "Dark  ←  ${type.unit}  →  light"
-        type == TerrainAnalysisType.ASPECT -> "N · E · S · W · flat cells shown neutral"
+        type == TerrainAnalysisType.ASPECT -> "N · E · S · W · flat cells neutral"
         type == TerrainAnalysisType.CURVATURE -> "Convex / raised  ←  neutral  →  concave / depressed"
         type.diverging -> "Negative  ←  neutral  →  positive"
         type == TerrainAnalysisType.MULTI_HILLSHADE -> "Shadow  ←  illumination  →  bright"
+        type == TerrainAnalysisType.SKY_VIEW_FACTOR -> "Enclosed  ←  sky visibility  →  open"
+        type == TerrainAnalysisType.POSITIVE_OPENNESS -> "Enclosed  ←  exposed ridges / mounds  →  open"
+        type == TerrainAnalysisType.NEGATIVE_OPENNESS -> "Open  ←  enclosed pits / ditches  →  strong"
         else -> "Low  ←  ${type.unit}  →  high"
     }
-    Text(
-        text = if (options.inverted) "$labels · inverted" else labels,
+
+    Column(
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-        style = MaterialTheme.typography.labelMedium,
-        fontFamily = FontFamily.Monospace,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(14.dp)
+                .background(
+                    brush = Brush.horizontalGradient(if (options.inverted) colors.reversed() else colors),
+                    shape = RoundedCornerShape(7.dp),
+                ),
+        )
+        Text(
+            text = if (options.inverted) "$labels · inverted" else labels,
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "Brightness ${"%.2f".format(options.brightness)}× · opacity ${(options.opacity * 100f).roundToInt()}%",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun legendColors(type: TerrainAnalysisType, options: TerrainRenderOptions): List<Color> {
+    if (options.palette == AnalysisPalette.GRAYSCALE) {
+        return listOf(Color(0xFF141414), Color(0xFF888888), Color.White)
+    }
+    if (options.palette == AnalysisPalette.HIGH_CONTRAST) {
+        return if (type.diverging || type == TerrainAnalysisType.CURVATURE) {
+            listOf(Color.Blue, Color.White, Color.Red)
+        } else {
+            listOf(Color.Black, Color(0xFF23005F), Color(0xFF0050E6), Color(0xFF00E6B9), Color.Yellow, Color.White)
+        }
+    }
+    return when (type) {
+        TerrainAnalysisType.ASPECT -> listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
+        TerrainAnalysisType.CURVATURE,
+        TerrainAnalysisType.LOCAL_RELIEF_MODEL,
+        TerrainAnalysisType.EROSION_SIMULATION,
+        -> listOf(Color(0xFF1952CD), Color(0xFFE1E1DA), Color(0xFFDC2A26))
+        TerrainAnalysisType.SKY_VIEW_FACTOR -> listOf(Color(0xFF0F1630), Color(0xFF225CA0), Color(0xFF46BECD), Color(0xFFFAFAE1))
+        TerrainAnalysisType.POSITIVE_OPENNESS,
+        TerrainAnalysisType.NEGATIVE_OPENNESS,
+        -> listOf(Color(0xFF1E1232), Color(0xFF6E2D87), Color(0xFFEB7337), Color(0xFFFFF4B4))
+        TerrainAnalysisType.DEPRESSION_DEPTH,
+        TerrainAnalysisType.ANCIENT_STREAM_LIKELIHOOD,
+        -> listOf(Color(0xFF141C3A), Color(0xFF2878BE), Color(0xFFFFC107), Color(0xFFDC2D2D))
+        TerrainAnalysisType.MULTI_HILLSHADE -> listOf(Color(0xFF232323), Color(0xFF888888), Color(0xFFFAFAFA))
+        else -> listOf(Color(0xFF141C3A), Color(0xFF195E91), Color(0xFF23AAA0), Color(0xFFD5D25A), Color(0xFFFAF5DC))
+    }
 }
 
 @Composable
