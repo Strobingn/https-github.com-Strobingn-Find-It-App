@@ -23,7 +23,7 @@ data class TerrainDecodeOutcome(
 
 /**
  * Serializes duplicate work per source/options key while allowing unrelated datasets to decode in
- * parallel. File parsing runs on Dispatchers.IO; LOD/spatial/GPU batch construction runs on
+ * parallel. File/cache I/O runs on Dispatchers.IO; LOD/spatial/GPU batch construction runs on
  * Dispatchers.Default. Coroutine cancellation is checked between LAZ point batches.
  */
 class TerrainDecodeCoordinator(
@@ -42,7 +42,7 @@ class TerrainDecodeCoordinator(
         try {
             return lock.withLock {
                 currentCoroutineContext().ensureActive()
-                val firstLookup = cache.get(file, options)
+                val firstLookup = withContext(Dispatchers.IO) { cache.get(file, options) }
                 val terrain = if (firstLookup.result != null) {
                     onStage(
                         when (firstLookup.hit) {
