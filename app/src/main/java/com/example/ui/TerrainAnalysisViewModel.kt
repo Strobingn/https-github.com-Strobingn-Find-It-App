@@ -144,6 +144,20 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
         rerenderCurrentLayer()
     }
 
+    fun updateAnalysisBrightness(value: Float) {
+        val brightness = value.coerceIn(0.5f, 1.75f)
+        if (_renderOptions.value.brightness == brightness) return
+        _renderOptions.value = _renderOptions.value.copy(brightness = brightness)
+        rerenderCurrentLayer()
+    }
+
+    fun updateAnalysisOpacity(value: Float) {
+        val opacity = value.coerceIn(0.1f, 1f)
+        if (_renderOptions.value.opacity == opacity) return
+        _renderOptions.value = _renderOptions.value.copy(opacity = opacity)
+        rerenderCurrentLayer()
+    }
+
     fun setAnalysisPaletteInverted(inverted: Boolean) {
         if (_renderOptions.value.inverted == inverted) return
         _renderOptions.value = _renderOptions.value.copy(inverted = inverted)
@@ -152,14 +166,14 @@ class TerrainAnalysisViewModel(application: Application) : AndroidViewModel(appl
 
     private fun rerenderCurrentLayer() {
         val currentLayer = _layer.value ?: return
-        val settings = _renderOptions.value
+        val settings = _renderOptions.value.sanitized()
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             _status.value = "Updating ${currentLayer.type.title} visualization…"
             val rendered = withContext(Dispatchers.Default) {
                 TerrainAnalysisRenderer.render(currentLayer, settings)
             }
-            if (_layer.value === currentLayer && _renderOptions.value == settings) {
+            if (_layer.value === currentLayer && _renderOptions.value.sanitized() == settings) {
                 _bitmap.value = rendered
                 _lastResultWasCached.value = false
                 _status.value = "${currentLayer.summary} Visualization updated without recalculating terrain."
