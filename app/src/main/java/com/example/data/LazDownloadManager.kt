@@ -6,6 +6,7 @@ import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
 import java.util.Locale
+import java.util.concurrent.CancellationException
 
 /**
  * Downloads LAZ/LAS files into persistent app storage.
@@ -26,6 +27,7 @@ class LazDownloadManager {
         sourceUrl: String,
         destinationDirectory: File,
         progress: ((downloadedBytes: Long, totalBytes: Long) -> Unit)? = null,
+        shouldContinue: () -> Boolean = { !Thread.currentThread().isInterrupted },
     ): File {
         destinationDirectory.mkdirs()
         require(destinationDirectory.isDirectory) { "Unable to create LAZ storage directory" }
@@ -36,6 +38,7 @@ class LazDownloadManager {
 
         try {
             while (true) {
+                if (!shouldContinue()) throw CancellationException("LAZ download cancelled")
                 connection?.disconnect()
                 connection = (currentUrl.openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = false
@@ -81,6 +84,7 @@ class LazDownloadManager {
                     FileOutputStream(partial).buffered(BUFFER_BYTES).use { output ->
                         val buffer = ByteArray(BUFFER_BYTES)
                         while (true) {
+                            if (!shouldContinue()) throw CancellationException("LAZ download cancelled")
                             val count = input.read(buffer)
                             if (count < 0) break
                             if (count == 0) continue
@@ -100,6 +104,7 @@ class LazDownloadManager {
                     }
                 }
 
+                if (!shouldContinue()) throw CancellationException("LAZ download cancelled")
                 check(downloaded > 0L) { "Downloaded file was empty" }
                 if (!partial.renameTo(destination)) {
                     partial.copyTo(destination, overwrite = false)
