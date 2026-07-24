@@ -10,7 +10,7 @@ data class LazDataset(
     val modifiedAtMillis: Long,
 )
 
-/** Persistent app-private storage for downloaded LAZ/LAS datasets. */
+/** Persistent app-private storage for downloaded and copied LAZ/LAS datasets. */
 class LazDatasetStore(
     val directory: File,
 ) {
@@ -32,6 +32,28 @@ class LazDatasetStore(
         ?.sortedByDescending { it.modifiedAtMillis }
         ?.toList()
         ?: emptyList()
+
+    fun destinationFor(requestedName: String): File {
+        directory.mkdirs()
+        val raw = requestedName.substringAfterLast('/').substringBefore('?')
+        val safe = raw.replace(Regex("[^a-zA-Z0-9._-]"), "_").ifBlank { "lidar-dataset.laz" }
+        val extension = safe.substringAfterLast('.', "").lowercase(Locale.US)
+        require(extension in setOf("laz", "las")) { "Dataset must be a LAZ or LAS file" }
+        val first = File(directory, safe)
+        if (!first.exists()) return first
+
+        val base = safe.removeSuffix(".$extension")
+        var index = 2
+        while (true) {
+            val candidate = File(directory, "$base-$index.$extension")
+            if (!candidate.exists()) return candidate
+            index++
+        }
+    }
+
+    fun delete(dataset: LazDataset): Boolean {
+        return contains(dataset.file) && dataset.file.delete()
+    }
 
     fun contains(file: File): Boolean {
         return runCatching {
