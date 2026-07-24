@@ -46,6 +46,12 @@ import com.example.analysis.TerrainAnalysisType
 import com.example.analysis.TerrainRenderOptions
 import kotlin.math.roundToInt
 
+enum class AnalysisDisplayMode(val title: String) {
+    TERRAIN("Terrain"),
+    ANALYSIS("Analysis"),
+    BLENDED("Blended"),
+}
+
 @Composable
 fun TerrainAnalysisScreen(
     terrainViewModel: HillshadeViewModel,
@@ -53,6 +59,7 @@ fun TerrainAnalysisScreen(
     padding: PaddingValues,
 ) {
     val grid by terrainViewModel.elevationGrid.collectAsStateWithLifecycle()
+    val terrainBitmap by terrainViewModel.hillshadeBitmap.collectAsStateWithLifecycle()
     val terrainSummary by terrainViewModel.activeTerrainSummary.collectAsStateWithLifecycle()
     val selectedType by analysisViewModel.selectedType.collectAsStateWithLifecycle()
     val options by analysisViewModel.options.collectAsStateWithLifecycle()
@@ -68,6 +75,7 @@ fun TerrainAnalysisScreen(
     val aiInterpretation by analysisViewModel.aiInterpretation.collectAsStateWithLifecycle()
     val isAiRunning by analysisViewModel.isAiRunning.collectAsStateWithLifecycle()
     val menuExpanded = remember { mutableStateOf(false) }
+    val displayMode = remember { mutableStateOf(AnalysisDisplayMode.BLENDED) }
 
     Column(
         modifier = Modifier
@@ -83,13 +91,9 @@ fun TerrainAnalysisScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
+                Text("Phase 3 · Terrain Analysis", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(
-                    text = "Phase 3 · Terrain Analysis",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "Validated calculations and professional rendering",
+                    "Validated calculations and professional rendering",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -99,36 +103,24 @@ fun TerrainAnalysisScreen(
             }
         }
 
+        Text(terrainSummary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
-            text = terrainSummary,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "${grid.width}×${grid.height} cells · ${"%.2f".format(grid.cellSizeMeters)} m/cell",
+            "${grid.width}×${grid.height} cells · ${"%.2f".format(grid.cellSizeMeters)} m/cell",
             style = MaterialTheme.typography.labelLarge,
             fontFamily = FontFamily.Monospace,
         )
 
         Column {
-            OutlinedButton(
-                onClick = { menuExpanded.value = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(selectedType.title) }
-            DropdownMenu(
-                expanded = menuExpanded.value,
-                onDismissRequest = { menuExpanded.value = false },
-            ) {
+            OutlinedButton(onClick = { menuExpanded.value = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(selectedType.title)
+            }
+            DropdownMenu(expanded = menuExpanded.value, onDismissRequest = { menuExpanded.value = false }) {
                 TerrainAnalysisType.phaseOneEntries.forEach { type ->
                     DropdownMenuItem(
                         text = {
                             Column {
                                 Text(type.title, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    type.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Text(type.description, style = MaterialTheme.typography.bodySmall)
                             }
                         },
                         onClick = {
@@ -141,7 +133,7 @@ fun TerrainAnalysisScreen(
             }
         }
 
-        Text(text = selectedType.description, style = MaterialTheme.typography.bodyMedium)
+        Text(selectedType.description, style = MaterialTheme.typography.bodyMedium)
 
         AnalysisParameterControls(
             selectedType = selectedType,
@@ -155,6 +147,8 @@ fun TerrainAnalysisScreen(
 
         AnalysisVisualizationControls(
             options = renderOptions,
+            displayMode = displayMode.value,
+            onDisplayModeChanged = { displayMode.value = it },
             onPaletteChanged = analysisViewModel::updateAnalysisPalette,
             onContrastChanged = analysisViewModel::updateAnalysisContrast,
             onBrightnessChanged = analysisViewModel::updateAnalysisBrightness,
@@ -163,58 +157,66 @@ fun TerrainAnalysisScreen(
         )
 
         if (isRunning) {
-            OutlinedButton(
-                onClick = analysisViewModel::cancelAnalysis,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+            OutlinedButton(onClick = analysisViewModel::cancelAnalysis, modifier = Modifier.fillMaxWidth()) {
                 CircularProgressIndicator(modifier = Modifier.padding(end = 10.dp), strokeWidth = 2.dp)
                 Text("Cancel ${selectedType.title}")
             }
         } else {
-            Button(
-                onClick = { analysisViewModel.runAnalysis(grid) },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Run ${selectedType.title}") }
+            Button(onClick = { analysisViewModel.runAnalysis(grid) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Run ${selectedType.title}")
+            }
         }
 
-        Text(
-            text = status,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (lastResultWasCached) {
-            Text(
-                text = "Cached result · no recalculation required",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            Text("Cached result · no recalculation required", color = MaterialTheme.colorScheme.primary)
         }
 
-        bitmap?.let { rendered ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-            ) {
+        bitmap?.let { analysisBitmap ->
+            val previewBitmap = when (displayMode.value) {
+                AnalysisDisplayMode.TERRAIN -> terrainBitmap
+                else -> analysisBitmap
+            }
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
                 Column {
-                    Image(
-                        bitmap = rendered.asImageBitmap(),
-                        contentDescription = "${selectedType.title} result",
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(rendered.width.toFloat() / rendered.height.coerceAtLeast(1)),
-                        contentScale = ContentScale.Fit,
-                    )
-                    AnalysisLegend(selectedType, renderOptions)
+                            .aspectRatio(previewBitmap.width.toFloat() / previewBitmap.height.coerceAtLeast(1)),
+                    ) {
+                        if (displayMode.value != AnalysisDisplayMode.ANALYSIS) {
+                            Image(
+                                bitmap = terrainBitmap.asImageBitmap(),
+                                contentDescription = "Terrain hillshade",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        if (displayMode.value != AnalysisDisplayMode.TERRAIN) {
+                            Image(
+                                bitmap = analysisBitmap.asImageBitmap(),
+                                contentDescription = "${selectedType.title} result",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
+                    if (displayMode.value != AnalysisDisplayMode.TERRAIN) {
+                        AnalysisLegend(selectedType, renderOptions)
+                    } else {
+                        Text(
+                            "Original terrain hillshade",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
                 }
             }
         }
 
         layer?.let { result ->
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Layer statistics", fontWeight = FontWeight.Bold)
                     Text("Valid cells: ${result.validCellCount} (${format(result.coveragePercent)}%)")
                     Text("Minimum: ${format(result.minimum)} ${result.type.unit}")
@@ -223,22 +225,17 @@ fun TerrainAnalysisScreen(
                     Text("95th percentile: ${format(result.percentile95)} ${result.type.unit}")
                     Text("Maximum: ${format(result.maximum)} ${result.type.unit}")
                     HorizontalDivider()
-                    Text(result.summary, style = MaterialTheme.typography.bodyMedium)
+                    Text(result.summary)
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = analysisViewModel::exportCurrentPng,
                     enabled = !isExporting,
                     modifier = Modifier.weight(1f),
                 ) {
-                    if (isExporting) {
-                        CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
-                    }
+                    if (isExporting) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
                     Text(if (isExporting) "Saving…" else "Save PNG")
                 }
                 Button(
@@ -246,30 +243,18 @@ fun TerrainAnalysisScreen(
                     enabled = !isAiRunning,
                     modifier = Modifier.weight(1f),
                 ) {
-                    if (isAiRunning) {
-                        CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
-                    }
+                    if (isAiRunning) CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp), strokeWidth = 2.dp)
                     Text(if (isAiRunning) "Analyzing…" else "ChatGPT")
                 }
             }
         }
 
-        exportStatus?.let { message ->
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        aiInterpretation?.let { interpretation ->
+        exportStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        aiInterpretation?.let {
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("ChatGPT interpretation", fontWeight = FontWeight.Bold)
-                    Text(interpretation, style = MaterialTheme.typography.bodyMedium)
+                    Text(it)
                 }
             }
         }
@@ -287,44 +272,19 @@ private fun AnalysisParameterControls(
     onDirectionCountChanged: (Int) -> Unit,
 ) {
     if (!selectedType.usesLocalRadius && !selectedType.usesHorizon) return
-
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Analysis parameters", fontWeight = FontWeight.Bold)
             if (selectedType.usesLocalRadius) {
-                SliderControl(
-                    title = "Local radius",
-                    valueLabel = "${localRadius.roundToInt()} m",
-                    value = localRadius,
-                    valueRange = 1f..100f,
-                    onValueChange = onLocalRadiusChanged,
-                )
+                SliderControl("Local radius", "${localRadius.roundToInt()} m", localRadius, 1f..100f, onValueChange = onLocalRadiusChanged)
             }
             if (selectedType.usesHorizon) {
-                SliderControl(
-                    title = "Horizon radius",
-                    valueLabel = "${horizonRadius.roundToInt()} m",
-                    value = horizonRadius,
-                    valueRange = 5f..250f,
-                    onValueChange = onHorizonRadiusChanged,
-                )
-                SliderControl(
-                    title = "Directions",
-                    valueLabel = directionCount.toString(),
-                    value = directionCount.toFloat(),
-                    valueRange = 8f..24f,
-                    steps = 15,
-                    onValueChange = { onDirectionCountChanged(it.roundToInt()) },
-                )
+                SliderControl("Horizon radius", "${horizonRadius.roundToInt()} m", horizonRadius, 5f..250f, onValueChange = onHorizonRadiusChanged)
+                SliderControl("Directions", directionCount.toString(), directionCount.toFloat(), 8f..24f, 15) {
+                    onDirectionCountChanged(it.roundToInt())
+                }
             }
-            Text(
-                text = "Tap Run after changing an analysis parameter.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text("Tap Run after changing an analysis parameter.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -332,6 +292,8 @@ private fun AnalysisParameterControls(
 @Composable
 private fun AnalysisVisualizationControls(
     options: TerrainRenderOptions,
+    displayMode: AnalysisDisplayMode,
+    onDisplayModeChanged: (AnalysisDisplayMode) -> Unit,
     onPaletteChanged: (AnalysisPalette) -> Unit,
     onContrastChanged: (Float) -> Unit,
     onBrightnessChanged: (Float) -> Unit,
@@ -340,73 +302,43 @@ private fun AnalysisVisualizationControls(
 ) {
     val paletteMenuExpanded = remember { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Visualization", fontWeight = FontWeight.Bold)
-            Column {
-                Text("Palette", style = MaterialTheme.typography.labelMedium)
-                OutlinedButton(
-                    onClick = { paletteMenuExpanded.value = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(options.palette.title) }
-                DropdownMenu(
-                    expanded = paletteMenuExpanded.value,
-                    onDismissRequest = { paletteMenuExpanded.value = false },
-                ) {
-                    AnalysisPalette.entries.forEach { palette ->
-                        DropdownMenuItem(
-                            text = { Text(palette.title) },
-                            onClick = {
-                                onPaletteChanged(palette)
-                                paletteMenuExpanded.value = false
-                            },
-                        )
+            Text("Preview mode", style = MaterialTheme.typography.labelMedium)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AnalysisDisplayMode.entries.forEach { mode ->
+                    if (mode == displayMode) {
+                        Button(onClick = { onDisplayModeChanged(mode) }, modifier = Modifier.weight(1f)) { Text(mode.title) }
+                    } else {
+                        OutlinedButton(onClick = { onDisplayModeChanged(mode) }, modifier = Modifier.weight(1f)) { Text(mode.title) }
                     }
                 }
             }
-            SliderControl(
-                title = "Contrast",
-                valueLabel = "${"%.1f".format(options.contrast)}×",
-                value = options.contrast,
-                valueRange = 0.5f..3f,
-                onValueChange = onContrastChanged,
-            )
-            SliderControl(
-                title = "Brightness",
-                valueLabel = "${"%.2f".format(options.brightness)}×",
-                value = options.brightness,
-                valueRange = 0.5f..1.75f,
-                onValueChange = onBrightnessChanged,
-            )
-            SliderControl(
-                title = "Opacity",
-                valueLabel = "${(options.opacity * 100f).roundToInt()}%",
-                value = options.opacity,
-                valueRange = 0.1f..1f,
-                onValueChange = onOpacityChanged,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Column {
+                Text("Palette", style = MaterialTheme.typography.labelMedium)
+                OutlinedButton(onClick = { paletteMenuExpanded.value = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(options.palette.title)
+                }
+                DropdownMenu(expanded = paletteMenuExpanded.value, onDismissRequest = { paletteMenuExpanded.value = false }) {
+                    AnalysisPalette.entries.forEach { palette ->
+                        DropdownMenuItem(text = { Text(palette.title) }, onClick = {
+                            onPaletteChanged(palette)
+                            paletteMenuExpanded.value = false
+                        })
+                    }
+                }
+            }
+            SliderControl("Contrast", "${"%.1f".format(options.contrast)}×", options.contrast, 0.5f..3f, onValueChange = onContrastChanged)
+            SliderControl("Brightness", "${"%.2f".format(options.brightness)}×", options.brightness, 0.5f..1.75f, onValueChange = onBrightnessChanged)
+            SliderControl("Overlay opacity", "${(options.opacity * 100f).roundToInt()}%", options.opacity, 0.1f..1f, onValueChange = onOpacityChanged)
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Invert palette")
-                    Text(
-                        "Changes colors only; terrain values are unchanged.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text("Changes colors only; terrain values are unchanged.", style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(checked = options.inverted, onCheckedChange = onInvertedChanged)
             }
-            Text(
-                text = "Palette, contrast, brightness, and opacity rerender instantly without recalculating terrain.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text("Blended mode places the analysis over the original hillshade. Rendering controls do not recalculate terrain.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -425,38 +357,20 @@ private fun AnalysisLegend(type: TerrainAnalysisType, options: TerrainRenderOpti
         type == TerrainAnalysisType.NEGATIVE_OPENNESS -> "Open  ←  enclosed pits / ditches  →  strong"
         else -> "Low  ←  ${type.unit}  →  high"
     }
-
-    Column(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
+    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(14.dp)
-                .background(
-                    brush = Brush.horizontalGradient(if (options.inverted) colors.reversed() else colors),
-                    shape = RoundedCornerShape(7.dp),
-                ),
+                .background(Brush.horizontalGradient(if (options.inverted) colors.reversed() else colors), RoundedCornerShape(7.dp)),
         )
-        Text(
-            text = if (options.inverted) "$labels · inverted" else labels,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "Brightness ${"%.2f".format(options.brightness)}× · opacity ${(options.opacity * 100f).roundToInt()}%",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(if (options.inverted) "$labels · inverted" else labels, fontFamily = FontFamily.Monospace)
+        Text("Brightness ${"%.2f".format(options.brightness)}× · opacity ${(options.opacity * 100f).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
     }
 }
 
 private fun legendColors(type: TerrainAnalysisType, options: TerrainRenderOptions): List<Color> {
-    if (options.palette == AnalysisPalette.GRAYSCALE) {
-        return listOf(Color(0xFF141414), Color(0xFF888888), Color.White)
-    }
+    if (options.palette == AnalysisPalette.GRAYSCALE) return listOf(Color(0xFF141414), Color(0xFF888888), Color.White)
     if (options.palette == AnalysisPalette.HIGH_CONTRAST) {
         return if (type.diverging || type == TerrainAnalysisType.CURVATURE) {
             listOf(Color.Blue, Color.White, Color.Red)
@@ -492,20 +406,11 @@ private fun SliderControl(
     onValueChange: (Float) -> Unit,
 ) {
     Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(title)
             Text(valueLabel, fontFamily = FontFamily.Monospace)
         }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            steps = steps,
-        )
+        Slider(value = value, onValueChange = onValueChange, valueRange = valueRange, steps = steps)
     }
 }
 
