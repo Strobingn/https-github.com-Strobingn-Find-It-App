@@ -4,11 +4,30 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import kotlin.math.abs
 import kotlin.math.ln1p
+import kotlin.math.pow
 import kotlin.math.roundToInt
+
+enum class AnalysisPalette(val title: String) {
+    AUTO("Layer optimized"),
+    HIGH_CONTRAST("High contrast"),
+    GRAYSCALE("Grayscale"),
+}
+
+data class TerrainRenderOptions(
+    val palette: AnalysisPalette = AnalysisPalette.AUTO,
+    val contrast: Float = 1f,
+    val inverted: Boolean = false,
+) {
+    fun sanitized(): TerrainRenderOptions = copy(contrast = contrast.coerceIn(0.5f, 3f))
+}
 
 object TerrainAnalysisRenderer {
 
-    fun render(layer: TerrainAnalysisLayer): Bitmap {
+    fun render(
+        layer: TerrainAnalysisLayer,
+        options: TerrainRenderOptions = TerrainRenderOptions(),
+    ): Bitmap {
+        val safe = options.sanitized()
         val bitmap = Bitmap.createBitmap(layer.width, layer.height, Bitmap.Config.ARGB_8888)
         val pixels = IntArray(layer.values.size)
         val robust = robustRange(layer)
@@ -22,39 +41,49 @@ object TerrainAnalysisRenderer {
                 continue
             }
             val value = layer.values[index]
-            pixels[index] = when (layer.type) {
-                TerrainAnalysisType.ASPECT -> aspectColor(value)
-                TerrainAnalysisType.WATERSHED -> watershedColor(value.toInt())
-                TerrainAnalysisType.FLOW_ACCUMULATION -> {
-                    val normalized = (ln1p(value.coerceAtLeast(0f).toDouble()).toFloat() / logMaximum)
-                        .coerceIn(0f, 1f)
-                    sequentialColor(normalized)
+            val normalized = when (layer.type) {
+                TerrainAnalysisType.FLOW_ACCUMULATION ->
+                    ln1p(value.coerceAtLeast(0f).toDouble()).toFloat() / logMaximum
+                TerrainAnalysisType.MULTI_HILLSHADE -> value.coerceIn(0f, 1f)
+                else -> ((value - robust.first) / range).coerceIn(0f, 1f)
+            }.let { applyContrast(it, safe.contrast, safe.inverted) }
+
+            pixels[index] = when {
+                layer.type == TerrainAnalysisType.ASPECT -> aspectColor(value, safe)
+                layer.type == TerrainAnalysisType.WATERSHED -> watershedColor(value.toInt())
+                safe.palette == AnalysisPalette.GRAYSCALE -> grayscale(normalized)
+                layer.type in setOf(
+                    TerrainAnalysisType.LOCAL_RELIEF_MODEL,
+                    TerrainAnalysisType.CURVATURE,
+                    TerrainAnalysisType.EROSION_SIMULATION,
+                ) -> {
+                    val signed = (value / symmetricScale).coerceIn(-1f, 1f)
+                    val adjusted = signed.copySignMagnitude(
+                        applyContrast(abs(signed), safe.contrast, inverted = false),
+                    ) * if (safe.inverted) -1f else 1f
+                    divergingColor(adjusted, safe.palette)
                 }
-                TerrainAnalysisType.MULTI_HILLSHADE -> grayscale(value.coerceIn(0f, 1f))
-                TerrainAnalysisType.SKY_VIEW_FACTOR -> {
-                    // Most useful SVF detail is compressed near 1.0, so use robust local contrast.
-                    val normalized = ((value - robust.first) / range).coerceIn(0f, 1f)
-                    skyViewColor(normalized)
-                }
-                TerrainAnalysisType.POSITIVE_OPENNESS,
-                TerrainAnalysisType.NEGATIVE_OPENNESS,
-                -> {
-                    val normalized = ((value - robust.first) / range).coerceIn(0f, 1f)
-                    opennessColor(normalized)
-                }
-                TerrainAnalysisType.LOCAL_RELIEF_MODEL,
-                TerrainAnalysisType.CURVATURE,
-                TerrainAnalysisType.EROSION_SIMULATION,
-                -> divergingColor((value / symmetricScale).coerceIn(-1f, 1f))
-                TerrainAnalysisType.DEPRESSION_DEPTH,
-                TerrainAnalysisType.ANCIENT_STREAM_LIKELIHOOD,
-                -> hotspotColor(((value - robust.first) / range).coerceIn(0f, 1f))
-                else -> sequentialColor(((value - robust.first) / range).coerceIn(0f, 1f))
+                safe.palette == AnalysisPalette.HIGH_CONTRAST -> highContrastColor(normalized)
+                layer.type == TerrainAnalysisType.SKY_VIEW_FACTOR -> skyViewColor(normalized)
+                layer.type == TerrainAnalysisType.POSITIVE_OPENNESS ||
+                    layer.type == TerrainAnalysisType.NEGATIVE_OPENNESS -> opennessColor(normalized)
+                layer.type == TerrainAnalysisType.DEPRESSION_DEPTH ||
+                    layer.type == TerrainAnalysisType.ANCIENT_STREAM_LIKELIHOOD -> hotspotColor(normalized)
+                else -> sequentialColor(normalized)
             }
         }
         bitmap.setPixels(pixels, 0, layer.width, 0, 0, layer.width, layer.height)
         return bitmap
     }
+
+    private fun applyContrast(value: Float, contrast: Float, inverted: Boolean): Float {
+        val clamped = value.coerceIn(0f, 1f)
+        val gamma = 1.0 / contrast.coerceIn(0.5f, 3f)
+        val adjusted = clamped.toDouble().pow(gamma).toFloat().coerceIn(0f, 1f)
+        return if (inverted) 1f - adjusted else adjusted
+    }
+
+    private fun Float.copySignMagnitude(magnitude: Float): Float = if (this < 0f) -magnitude else magnitude
 
     private fun robustRange(layer: TerrainAnalysisLayer): Pair<Float, Float> {
         val selected = FloatArray(layer.validCellCount)
@@ -92,8 +121,16 @@ object TerrainAnalysisRenderer {
     }
 
     private fun grayscale(value: Float): Int {
-        val channel = (35f + value * 220f).toInt().coerceIn(0, 255)
+        val channel = (20f + value * 235f).toInt().coerceIn(0, 255)
         return Color.rgb(channel, channel, channel)
+    }
+
+    private fun highContrastColor(value: Float): Int = when {
+        value < 0.2f -> blend(Color.BLACK, Color.rgb(35, 0, 95), value / 0.2f)
+        value < 0.4f -> blend(Color.rgb(35, 0, 95), Color.rgb(0, 80, 230), (value - 0.2f) / 0.2f)
+        value < 0.6f -> blend(Color.rgb(0, 80, 230), Color.rgb(0, 230, 185), (value - 0.4f) / 0.2f)
+        value < 0.8f -> blend(Color.rgb(0, 230, 185), Color.YELLOW, (value - 0.6f) / 0.2f)
+        else -> blend(Color.YELLOW, Color.WHITE, (value - 0.8f) / 0.2f)
     }
 
     private fun skyViewColor(value: Float): Int = when {
@@ -121,18 +158,20 @@ object TerrainAnalysisRenderer {
         else -> blend(Color.rgb(255, 193, 7), Color.rgb(220, 45, 45), (value - 0.66f) / 0.34f)
     }
 
-    private fun divergingColor(value: Float): Int {
-        val neutral = Color.rgb(225, 225, 218)
+    private fun divergingColor(value: Float, palette: AnalysisPalette): Int {
+        val neutral = if (palette == AnalysisPalette.HIGH_CONTRAST) Color.WHITE else Color.rgb(225, 225, 218)
         return if (value < 0f) {
-            blend(neutral, Color.rgb(25, 82, 205), -value)
+            blend(neutral, if (palette == AnalysisPalette.HIGH_CONTRAST) Color.BLUE else Color.rgb(25, 82, 205), -value)
         } else {
-            blend(neutral, Color.rgb(220, 42, 38), value)
+            blend(neutral, if (palette == AnalysisPalette.HIGH_CONTRAST) Color.RED else Color.rgb(220, 42, 38), value)
         }
     }
 
-    private fun aspectColor(value: Float): Int {
+    private fun aspectColor(value: Float, options: TerrainRenderOptions): Int {
         if (value < 0f) return Color.rgb(135, 135, 135)
-        return Color.HSVToColor(floatArrayOf(value % 360f, 0.82f, 0.95f))
+        if (options.palette == AnalysisPalette.GRAYSCALE) return grayscale((value % 360f) / 360f)
+        val hue = if (options.inverted) (360f - value) % 360f else value % 360f
+        return Color.HSVToColor(floatArrayOf(hue, 0.82f, 0.95f))
     }
 
     private fun watershedColor(label: Int): Int {
